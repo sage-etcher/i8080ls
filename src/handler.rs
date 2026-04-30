@@ -3,8 +3,9 @@ use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer};
 
+use crate::code_elements::CodeMacro;
 use crate::data_types::FxDashMap;
-use crate::parser::{FileContext, CodeMacro};
+use crate::parser::FileContext;
 
 
 #[derive(Debug)]
