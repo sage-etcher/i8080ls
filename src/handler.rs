@@ -3,8 +3,8 @@ use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer};
 
-use crate::parser::{FileContext, TextPosition};
 use crate::data_types::FxDashMap;
+use crate::parser::{FileContext, CodeMacro};
 
 
 #[derive(Debug)]
@@ -45,7 +45,7 @@ impl LanguageServer for Backend {
         let text: &String = &params.text_document.text;
 
         // get text file contents
-        let mut ctx: FileContext = FileContext::new(text.clone());
+        let mut ctx: FileContext = FileContext::new(text);
         ctx.parse_file();
 
         self.context.insert(uri, ctx);
@@ -65,10 +65,7 @@ impl LanguageServer for Backend {
         let change = &params.content_changes.first().unwrap();
         assert_eq!(change.range, None); // only support SyncKind::FULL
 
-        let file_content = change.text.split('\n').collect();
-        let mut ctx: FileContext = FileContext::new(file_content);
-
-        // Parse the file
+        let mut ctx = FileContext::new(&change.text);
         ctx.parse_file();
 
         // save the FileContext
@@ -81,9 +78,8 @@ impl LanguageServer for Backend {
         let uri: Uri = params.text_document_position_params.text_document.uri;
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
 
-        let comment: &TextPosition = &ctx.comments.get("debug_hover").unwrap();
-
-        let hover_value: String = format!("# {}\n", comment.text);
+        let debug_hover: &CodeMacro = &ctx.macros.get("debug_hover").unwrap();
+        let hover_value: String = format!("# {}\n", debug_hover.macro_text);
 
         Ok(Some(Hover {
             range: None,

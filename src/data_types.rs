@@ -1,7 +1,7 @@
 
 use dashmap::DashMap;
-use std::hash::BuildHasherDefault;
 use rustc_hash::FxHasher;
+use std::hash::BuildHasherDefault;
 
 pub type FxDashMap<K, V> = DashMap<K, V, BuildHasherDefault<FxHasher>>;
 

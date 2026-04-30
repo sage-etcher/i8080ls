@@ -1,64 +1,79 @@
 
-use tower_lsp_server::ls_types::{Range, Position};
-
 use crate::data_types::FxDashMap;
 
+#[derive(Debug)]
+pub struct CodeElementPosition {
+    start: u32,
+    end: u32,
+}
 
 #[derive(Debug)]
-pub struct TextPosition {
-    pub text: String,
-    _position: Range,
-
-    _offset:  Option<u16>,
-    _i_sbyte: Option<i8>,
-    _i_byte:  Option<u8>,
-    _i_word:  Option<u16>,
+pub struct CodeElement {
+    pub text: String,                   // source text
+    pub position: CodeElementPosition,  // position of text inside file_contents
+    pub description: Option<String>,    // comment description
 }
+
+#[derive(Debug)]
+pub struct CodeMacro {
+    pub element: CodeElement,   // common CodeElement details
+    pub macro_text: String,     // macro replace values
+}
+
+#[derive(Debug)]
+pub struct CodeOpcode {
+    pub element: CodeElement,   // common CodeElement details
+}
+
+pub type CodeSymbol = CodeOpcode;
+
 
 #[derive(Debug)]
 pub struct FileContext {
-    _file_content: String,
-    pub _macros:   FxDashMap<String, TextPosition>,
-    pub _opcodes:  FxDashMap<String, TextPosition>,
-    pub _strings:  FxDashMap<String, TextPosition>,
-    pub _numbers:  FxDashMap<String, TextPosition>,
-    pub comments: FxDashMap<String, TextPosition>,
-    pub _symbols:  FxDashMap<String, TextPosition>,
+    file_content: String,
+    pub macros:   FxDashMap<String, CodeMacro>,
+    pub opcodes:  FxDashMap<String, CodeOpcode>,
+}
+
+impl CodeElementPosition {
+    pub fn new(start: u32, end: u32) -> Self {
+        Self { start, end }
+    }
+}
+
+impl CodeElement {
+    pub fn new(text: &str, position: CodeElementPosition) -> Self {
+        Self {
+            text: String::from(text),
+            position,
+            description: None,
+        }
+    }
 }
 
 impl FileContext {
-    pub fn new(file_content: String) -> Self {
+    pub fn new(file_content: &str) -> Self {
         Self {
-            _file_content: file_content,
-            _macros:   FxDashMap::default(),
-            _opcodes:  FxDashMap::default(),
-            _strings:  FxDashMap::default(),
-            _numbers:  FxDashMap::default(),
-            comments: FxDashMap::default(),
-            _symbols:  FxDashMap::default(),
+            file_content: String::from(file_content),
+            macros:   FxDashMap::default(),
+            opcodes:  FxDashMap::default(),
         }
+    }
+
+    fn add_debug_macros(&mut self) {
+        // Hover Macro
+        let debug_hover_key = "debug_hover";
+        let debug_hover_macro = CodeMacro {
+            element: CodeElement::new(debug_hover_key, CodeElementPosition::new(0, 0)),
+            macro_text: String::from("hello this is a hover default"),
+        };
+
+        self.macros.insert(String::from(debug_hover_key), debug_hover_macro);
     }
 
     pub fn parse_file(&mut self) {
         // parse stuff
 
-        // Debuging comment
-        self.comments.insert("debug_hover".to_string(), TextPosition {
-            text: "hello this is a hover default".to_string(),
-            _position: Range {
-                start: Position {
-                    line:      0,
-                    character: 0,
-                },
-                end: Position {
-                    line:      0,
-                    character: 0,
-                },
-            },
-            _offset:  None,
-            _i_sbyte: None,
-            _i_byte:  None,
-            _i_word:  None,
-        });
+        self.add_debug_macros();
     }
 }
