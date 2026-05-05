@@ -2,9 +2,16 @@
 use crate::data_types::FxDashMap;
 use crate::code_elements::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Symbol {
     Unknown,
+    MacroORG,
+    MacroEND,
+    MacroEQU,
+    MacroSET,
+    MacroDB,
+    MacroDW,
+    MacroDS,
     RegA,
     RegB,
     RegC,
@@ -116,7 +123,7 @@ struct Lexer {
     line:   u32,
     column: u32,
 
-    kw_sym: FxDashMap<String, Vec<Symbol>>,
+    kw_syms: FxDashMap<String, Vec<Symbol>>,
     number: u32,
     ident: String,
 }
@@ -139,6 +146,14 @@ pub struct FileContext {
 impl Symbol {
     pub fn get_keywords() -> FxDashMap<String, Vec<Symbol>> {
         let kw_map: FxDashMap<String, Vec<Symbol>> = FxDashMap::default();
+
+        kw_map.insert(String::from("org"),  vec![Symbol::MacroORG]);
+        kw_map.insert(String::from("end"),  vec![Symbol::MacroEND]);
+        kw_map.insert(String::from("equ"),  vec![Symbol::MacroEQU]);
+        kw_map.insert(String::from("set"),  vec![Symbol::MacroSET]);
+        kw_map.insert(String::from("db"),   vec![Symbol::MacroDB]);
+        kw_map.insert(String::from("dw"),   vec![Symbol::MacroDW]);
+        kw_map.insert(String::from("ds"),   vec![Symbol::MacroDS]);
 
         kw_map.insert(String::from("a"),    vec![Symbol::RegA]);
         kw_map.insert(String::from("b"),    vec![Symbol::RegB, Symbol::RegPairBC]);
@@ -245,12 +260,24 @@ impl Lexer {
             line:   0,
             column: 0,
 
-            kw_sym: Symbol::get_keywords(),
+            kw_syms: Symbol::get_keywords(),
             number: 0,
             ident:  String::new(),
 
 
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.index  = 0;
+        self.line   = 0;
+        self.column = 0;
+
+        self.ch       = None;
+        self.ch_lower = None;
+
+        self.number = 0;
+        self.ident  = String::new();
     }
 
     fn read_ch(&mut self) -> Option<char> {
@@ -296,7 +323,7 @@ impl Lexer {
         }
 
         /* detect base */
-        let mut base = 0;
+        let base;
 
         match self.ch_lower { /* non xdigit suffix */
             Some('h') => { self.read_ch(); base = 16; },
@@ -310,7 +337,7 @@ impl Lexer {
                         if !self.ch.unwrap().is_alphanumeric() {
                             base = 10; /* implicit decimal */
                         } else { /* error bad suffix */
-                            return vec![Symbol::UNKNWON];
+                            return vec![Symbol::Unknown];
                         }
                     }
                 }
@@ -320,18 +347,12 @@ impl Lexer {
         /* convert iterable to number */
         let mut number: u32 = 0;
         for xdigit in xdigit_arr.into_iter() {
-            number *= base + xdigit.;
-
-            if xdigit >= 'a' {
-                number += xdigit - 'a' + 10;
-            } else {
-                number += xdigit - '0';
-            }
+            number *= base + xdigit.to_digit(base).unwrap();
         }
 
         self.number = number;
 
-        return vec![Symbol::NUMBER];
+        return vec![Symbol::Number];
     }
 
     fn parse_alpha(&mut self) -> Vec<Symbol> {
@@ -339,56 +360,74 @@ impl Lexer {
         /* collect ident */
         let mut ident_arr: Vec<char> = Vec::new();
 
-        ident_arr.insert(self.ch_lower);
+        ident_arr.push(self.ch_lower.unwrap());
         loop {
             match self.read_ch() {
                 None      => break,
                 Some('$') => continue,
                 Some('_') => continue,
+                _ => {
+                    if !self.ch_lower.unwrap().is_alphanumeric() {
+                        break;
+                    }
+                }
             }
 
-            if !self.ch_lower.unwrap().is_alphanumeric() {
-                break;
-            }
-
-            ident_arr.insert(self.ch_lower.unwrap().to_lowercase());
+            ident_arr.push(self.ch_lower.unwrap());
         }
         let ident: String = ident_arr.into_iter().collect();
 
         /* check for keywords */
-        let kw_sym: Option<Vec<Symbol>> = self.keywords.get(ident);
-        if kw_sym != None {
-            return kw_sym.unwrap();
+        let kw_sym = self.kw_syms.get(&ident);
+        if !kw_sym.is_none() {
+            return kw_sym.unwrap().value().to_vec();
         }
 
         /* assume to be ident */
         self.ident = ident;
 
-        return vec![Symbol::IDENT];
+        return vec![Symbol::Ident];
+    }
+
+    pub fn parse_comment(&mut self) -> Vec<Symbol> {
+        let mut ident_arr: Vec<char> = Vec::new();
+
+        while !self.read_ch().is_none() && self.ch.unwrap() != '\n' {
+            ident_arr.push(self.ch.unwrap());
+        }
+
+        self.ident = ident_arr.into_iter().collect();
+        return vec![Symbol::Comment];
     }
 
     fn get_symbol(&mut self) -> Vec<Symbol> {
-        while self.read_ch().unwrap().is_ascii_whitespace() {}
+        while !self.ch.is_none() && 
+                (self.ch.unwrap() == ' ' || self.ch.unwrap() == '\t') {
+            self.read_ch();
+        }
 
         // symbols
         match self.ch {
             None       => { self.read_ch(); return vec![Symbol::EOF]; }
-            Some('\n') => { self.read_ch(); return vec![Symbol::NEWLINE]; }
-            Some(',')  => { self.read_ch(); return vec![Symbol::COMMA]; }
-            Some(':')  => { self.read_ch(); return vec![Symbol::COLON]; }
-        }
+            Some('\n') => { self.read_ch(); return vec![Symbol::Newline]; }
+            Some('!')  => { self.read_ch(); return vec![Symbol::Newline]; }
+            Some(',')  => { self.read_ch(); return vec![Symbol::Comma]; }
+            Some(':')  => { self.read_ch(); return vec![Symbol::Colon]; }
+            Some(';')  => return self.parse_comment(),
+            _ => {
+                // number
+                if self.ch.unwrap().is_digit(10) {
+                    return self.parse_number();
+                }
 
-        // number
-        if self.ch.unwrap().is_digit(10) {
-            return self.parse_number();
-        }
+                // ident, register, or opcode
+                if self.ch.unwrap().is_alphabetic() {
+                    return self.parse_alpha();
+                }
 
-        // ident, register, or opcode
-        if self.ch.unwrap().is_alphabetic() {
-            return self.parse_alpha();
+                return vec![Symbol::Unknown];
+            }
         }
-
-        return vec![Symbol::UNKNOWN];
     }
 }
 
@@ -396,6 +435,23 @@ impl Parser {
     pub fn new(file_content: &str) -> Self {
         Self {
             lexer: Lexer::new(file_content),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.lexer.reset();
+    }
+
+    pub fn parse(&mut self) {
+        loop {
+            let syms: Vec<Symbol> = self.lexer.get_symbol();
+
+            for sym in syms {
+                dbg!(sym);
+                if sym == Symbol::EOF {
+                    return;
+                }
+            }
         }
     }
 }
@@ -425,10 +481,11 @@ impl FileContext {
 
     pub fn parse_file(&mut self) {
         // parse code
-
-
         // parse stuff
+        self.parser.lexer.read_ch();
+        self.parser.parse();
 
+        // add debugging things
         self.add_debug_macros();
     }
 }
