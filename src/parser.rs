@@ -12,6 +12,12 @@ enum Symbol {
     MacroDB,
     MacroDW,
     MacroDS,
+    MacroPC,
+    MacroAdd,
+    MacroSub,
+    MacroMult,
+    MacroDiv,
+    MacroMod,
     RegA,
     RegB,
     RegC,
@@ -413,6 +419,12 @@ impl Lexer {
             Some('!')  => { self.read_ch(); return vec![Symbol::Newline]; }
             Some(',')  => { self.read_ch(); return vec![Symbol::Comma]; }
             Some(':')  => { self.read_ch(); return vec![Symbol::Colon]; }
+            Some('$')  => { self.read_ch(); return vec![Symbol::MacroPC]; }
+            Some('+')  => { self.read_ch(); return vec![Symbol::MacroAdd]; }
+            Some('-')  => { self.read_ch(); return vec![Symbol::MacroSub]; }
+            Some('*')  => { self.read_ch(); return vec![Symbol::MacroMult]; }
+            Some('/')  => { self.read_ch(); return vec![Symbol::MacroDiv]; }
+            Some('%')  => { self.read_ch(); return vec![Symbol::MacroMod]; }
             Some(';')  => return self.parse_comment(),
             _ => {
                 // number
@@ -425,6 +437,7 @@ impl Lexer {
                     return self.parse_alpha();
                 }
 
+                self.read_ch();
                 return vec![Symbol::Unknown];
             }
         }
@@ -446,8 +459,10 @@ impl Parser {
         loop {
             let syms: Vec<Symbol> = self.lexer.get_symbol();
 
+            // [Ident Colon] [Opcode* [arg1[,arg2]]] [comment] Newline
+
+            dbg!(&syms);
             for sym in syms {
-                dbg!(sym);
                 if sym == Symbol::EOF {
                     return;
                 }
