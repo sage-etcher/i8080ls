@@ -1,4 +1,6 @@
 
+pub mod symbol;
+pub mod lexer;
 pub mod parser;
 pub mod data_types;
 pub mod handler;

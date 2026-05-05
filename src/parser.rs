@@ -1,472 +1,242 @@
 
+use tower_lsp_server::ls_types::Range;
+
 use crate::data_types::FxDashMap;
 use crate::code_elements::*;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Symbol {
-    Unknown,
-    MacroORG,
-    MacroEND,
-    MacroEQU,
-    MacroSET,
-    MacroDB,
-    MacroDW,
-    MacroDS,
-    MacroPC,
-    MacroAdd,
-    MacroSub,
-    MacroMult,
-    MacroDiv,
-    MacroMod,
-    RegA,
-    RegB,
-    RegC,
-    RegD,
-    RegE,
-    RegF,
-    RegH,
-    RegL,
-    RegM,
-    RegPairSP,
-    RegPairPSW,
-    RegPairBC,
-    RegPairDE,
-    RegPairHL,
-    Number,
-    Comma,
-    Colon,
-    Ident,
-    Newline,
-    Comment,
-    EOF,
-    OpcodeACI,
-    OpcodeADC,
-    OpcodeADD,
-    OpcodeADI,
-    OpcodeANA,
-    OpcodeANI,
-    OpcodeCALL,
-    OpcodeCC,
-    OpcodeCM,
-    OpcodeCMA,
-    OpcodeCMC,
-    OpcodeCMP,
-    OpcodeCNC,
-    OpcodeCNZ,
-    OpcodeCP,
-    OpcodeCPE,
-    OpcodeCPI,
-    OpcodeCPO,
-    OpcodeCZ,
-    OpcodeDAA,
-    OpcodeDAD,
-    OpcodeDCR,
-    OpcodeDCX,
-    OpcodeDI,
-    OpcodeEI,
-    OpcodeHLT,
-    OpcodeIN,
-    OpcodeINR,
-    OpcodeINX,
-    OpcodeJC,
-    OpcodeJM,
-    OpcodeJMP,
-    OpcodeJNC,
-    OpcodeJNZ,
-    OpcodeJP,
-    OpcodeJPE,
-    OpcodeJPO,
-    OpcodeJZ,
-    OpcodeLDA,
-    OpcodeLDAX,
-    OpcodeLHLD,
-    OpcodeLXI,
-    OpcodeMOV,
-    OpcodeMVI,
-    OpcodeNOP,
-    OpcodeORA,
-    OpcodeORI,
-    OpcodeOUT,
-    OpcodePCHL,
-    OpcodePOP,
-    OpcodePUSH,
-    OpcodeRAL,
-    OpcodeRAR,
-    OpcodeRC,
-    OpcodeRET,
-    OpcodeRLC,
-    OpcodeRM,
-    OpcodeRNC,
-    OpcodeRNZ,
-    OpcodeRP,
-    OpcodeRPE,
-    OpcodeRPO,
-    OpcodeRRC,
-    OpcodeRST,
-    OpcodeRZ,
-    OpcodeSBB,
-    OpcodeSBI,
-    OpcodeSHLD,
-    OpcodeSPHL,
-    OpcodeSTA,
-    OpcodeSTAX,
-    OpcodeSTC,
-    OpcodeSUB,
-    OpcodeSUI,
-    OpcodeXCHG,
-    OpcodeXRA,
-    OpcodeXRI,
-    OpcodeXTHL,
-}
+use crate::symbol::Symbol;
+use crate::lexer::Lexer;
 
 #[derive(Debug)]
-struct Lexer {
-    file_content: String,
-    index: usize,
-    ch: Option<char>,
-    ch_lower: Option<char>,
-
-    line:   u32,
-    column: u32,
-
-    kw_syms: FxDashMap<String, Vec<Symbol>>,
-    number: u32,
-    ident: String,
-}
-
-#[derive(Debug)]
-struct Parser {
+pub struct Parser {
     lexer: Lexer,
+    symbol: Vec<Symbol>,
+
+    pub syntax_error: Vec<Range>,
 }
 
 #[derive(Debug)]
 pub struct FileContext {
-    parser: Parser,
+    pub parser: Parser,
 
-    pub macros:   FxDashMap<String, CodeMacro>,
-    pub opcodes:  FxDashMap<String, CodeOpcode>,
-    pub numbers:  FxDashMap<String, CodeNumber>,
-    pub symbols:  FxDashMap<String, CodeSymbol>,
+    pub macros:  FxDashMap<String, CodeMacro>,
+    pub opcodes: FxDashMap<String, CodeOpcode>,
+    pub numbers: FxDashMap<String, CodeNumber>,
+    pub symbols: FxDashMap<String, CodeSymbol>,
 }
 
-impl Symbol {
-    pub fn get_keywords() -> FxDashMap<String, Vec<Symbol>> {
-        let kw_map: FxDashMap<String, Vec<Symbol>> = FxDashMap::default();
-
-        kw_map.insert(String::from("org"),  vec![Symbol::MacroORG]);
-        kw_map.insert(String::from("end"),  vec![Symbol::MacroEND]);
-        kw_map.insert(String::from("equ"),  vec![Symbol::MacroEQU]);
-        kw_map.insert(String::from("set"),  vec![Symbol::MacroSET]);
-        kw_map.insert(String::from("db"),   vec![Symbol::MacroDB]);
-        kw_map.insert(String::from("dw"),   vec![Symbol::MacroDW]);
-        kw_map.insert(String::from("ds"),   vec![Symbol::MacroDS]);
-
-        kw_map.insert(String::from("a"),    vec![Symbol::RegA]);
-        kw_map.insert(String::from("b"),    vec![Symbol::RegB, Symbol::RegPairBC]);
-        kw_map.insert(String::from("c"),    vec![Symbol::RegC]);
-        kw_map.insert(String::from("d"),    vec![Symbol::RegD, Symbol::RegPairDE]);
-        kw_map.insert(String::from("e"),    vec![Symbol::RegE]);
-        kw_map.insert(String::from("h"),    vec![Symbol::RegH, Symbol::RegPairHL]);
-        kw_map.insert(String::from("l"),    vec![Symbol::RegL]);
-        kw_map.insert(String::from("m"),    vec![Symbol::RegM]);
-        kw_map.insert(String::from("sp"),   vec![Symbol::RegPairSP]);
-        kw_map.insert(String::from("psw"),  vec![Symbol::RegPairPSW]);
-
-        kw_map.insert(String::from("aci"),  vec![Symbol::OpcodeACI]);
-        kw_map.insert(String::from("adc"),  vec![Symbol::OpcodeADC]);
-        kw_map.insert(String::from("add"),  vec![Symbol::OpcodeADD]);
-        kw_map.insert(String::from("adi"),  vec![Symbol::OpcodeADI]);
-        kw_map.insert(String::from("ana"),  vec![Symbol::OpcodeANA]);
-        kw_map.insert(String::from("ani"),  vec![Symbol::OpcodeANI]);
-        kw_map.insert(String::from("call"), vec![Symbol::OpcodeCALL]);
-        kw_map.insert(String::from("cc"),   vec![Symbol::OpcodeCC]);
-        kw_map.insert(String::from("cm"),   vec![Symbol::OpcodeCM]);
-        kw_map.insert(String::from("cma"),  vec![Symbol::OpcodeCMA]);
-        kw_map.insert(String::from("cmc"),  vec![Symbol::OpcodeCMC]);
-        kw_map.insert(String::from("cmp"),  vec![Symbol::OpcodeCMP]);
-        kw_map.insert(String::from("cnc"),  vec![Symbol::OpcodeCNC]);
-        kw_map.insert(String::from("cnz"),  vec![Symbol::OpcodeCNZ]);
-        kw_map.insert(String::from("cp"),   vec![Symbol::OpcodeCP]);
-        kw_map.insert(String::from("cpe"),  vec![Symbol::OpcodeCPE]);
-        kw_map.insert(String::from("cpi"),  vec![Symbol::OpcodeCPI]);
-        kw_map.insert(String::from("cpo"),  vec![Symbol::OpcodeCPO]);
-        kw_map.insert(String::from("cz"),   vec![Symbol::OpcodeCZ]);
-        kw_map.insert(String::from("daa"),  vec![Symbol::OpcodeDAA]);
-        kw_map.insert(String::from("dad"),  vec![Symbol::OpcodeDAD]);
-        kw_map.insert(String::from("dcr"),  vec![Symbol::OpcodeDCR]);
-        kw_map.insert(String::from("dcx"),  vec![Symbol::OpcodeDCX]);
-        kw_map.insert(String::from("di"),   vec![Symbol::OpcodeDI]);
-        kw_map.insert(String::from("ei"),   vec![Symbol::OpcodeEI]);
-        kw_map.insert(String::from("hlt"),  vec![Symbol::OpcodeHLT]);
-        kw_map.insert(String::from("in"),   vec![Symbol::OpcodeIN]);
-        kw_map.insert(String::from("inr"),  vec![Symbol::OpcodeINR]);
-        kw_map.insert(String::from("inx"),  vec![Symbol::OpcodeINX]);
-        kw_map.insert(String::from("jc"),   vec![Symbol::OpcodeJC]);
-        kw_map.insert(String::from("jm"),   vec![Symbol::OpcodeJM]);
-        kw_map.insert(String::from("jmp"),  vec![Symbol::OpcodeJMP]);
-        kw_map.insert(String::from("jnc"),  vec![Symbol::OpcodeJNC]);
-        kw_map.insert(String::from("jnz"),  vec![Symbol::OpcodeJNZ]);
-        kw_map.insert(String::from("jp"),   vec![Symbol::OpcodeJP]);
-        kw_map.insert(String::from("jpe"),  vec![Symbol::OpcodeJPE]);
-        kw_map.insert(String::from("jpo"),  vec![Symbol::OpcodeJPO]);
-        kw_map.insert(String::from("jz"),   vec![Symbol::OpcodeJZ]);
-        kw_map.insert(String::from("lda"),  vec![Symbol::OpcodeLDA]);
-        kw_map.insert(String::from("ldax"), vec![Symbol::OpcodeLDAX]);
-        kw_map.insert(String::from("lhld"), vec![Symbol::OpcodeLHLD]);
-        kw_map.insert(String::from("lxi"),  vec![Symbol::OpcodeLXI]);
-        kw_map.insert(String::from("mov"),  vec![Symbol::OpcodeMOV]);
-        kw_map.insert(String::from("mvi"),  vec![Symbol::OpcodeMVI]);
-        kw_map.insert(String::from("nop"),  vec![Symbol::OpcodeNOP]);
-        kw_map.insert(String::from("ora"),  vec![Symbol::OpcodeORA]);
-        kw_map.insert(String::from("ori"),  vec![Symbol::OpcodeORI]);
-        kw_map.insert(String::from("out"),  vec![Symbol::OpcodeOUT]);
-        kw_map.insert(String::from("pchl"), vec![Symbol::OpcodePCHL]);
-        kw_map.insert(String::from("pop"),  vec![Symbol::OpcodePOP]);
-        kw_map.insert(String::from("push"), vec![Symbol::OpcodePUSH]);
-        kw_map.insert(String::from("ral"),  vec![Symbol::OpcodeRAL]);
-        kw_map.insert(String::from("rar"),  vec![Symbol::OpcodeRAR]);
-        kw_map.insert(String::from("rc"),   vec![Symbol::OpcodeRC]);
-        kw_map.insert(String::from("ret"),  vec![Symbol::OpcodeRET]);
-        kw_map.insert(String::from("rlc"),  vec![Symbol::OpcodeRLC]);
-        kw_map.insert(String::from("rm"),   vec![Symbol::OpcodeRM]);
-        kw_map.insert(String::from("rnc"),  vec![Symbol::OpcodeRNC]);
-        kw_map.insert(String::from("rnz"),  vec![Symbol::OpcodeRNZ]);
-        kw_map.insert(String::from("rp"),   vec![Symbol::OpcodeRP]);
-        kw_map.insert(String::from("rpe"),  vec![Symbol::OpcodeRPE]);
-        kw_map.insert(String::from("rpo"),  vec![Symbol::OpcodeRPO]);
-        kw_map.insert(String::from("rrc"),  vec![Symbol::OpcodeRRC]);
-        kw_map.insert(String::from("rst"),  vec![Symbol::OpcodeRST]);
-        kw_map.insert(String::from("rz"),   vec![Symbol::OpcodeRZ]);
-        kw_map.insert(String::from("sbb"),  vec![Symbol::OpcodeSBB]);
-        kw_map.insert(String::from("sbi"),  vec![Symbol::OpcodeSBI]);
-        kw_map.insert(String::from("shld"), vec![Symbol::OpcodeSHLD]);
-        kw_map.insert(String::from("sphl"), vec![Symbol::OpcodeSPHL]);
-        kw_map.insert(String::from("sta"),  vec![Symbol::OpcodeSTA]);
-        kw_map.insert(String::from("stax"), vec![Symbol::OpcodeSTAX]);
-        kw_map.insert(String::from("stc"),  vec![Symbol::OpcodeSTC]);
-        kw_map.insert(String::from("sub"),  vec![Symbol::OpcodeSUB]);
-        kw_map.insert(String::from("sui"),  vec![Symbol::OpcodeSUI]);
-        kw_map.insert(String::from("xchg"), vec![Symbol::OpcodeXCHG]);
-        kw_map.insert(String::from("xra"),  vec![Symbol::OpcodeXRA]);
-        kw_map.insert(String::from("xri"),  vec![Symbol::OpcodeXRI]);
-        kw_map.insert(String::from("xthl"), vec![Symbol::OpcodeXTHL]);
-
-        return kw_map;
-    }
-}
-
-impl Lexer {
-    pub fn new(file_content: &str) -> Self {
-        Self {
-            file_content: String::from(file_content),
-            index:0,
-            ch: None,
-            ch_lower: None,
-
-            line:   0,
-            column: 0,
-
-            kw_syms: Symbol::get_keywords(),
-            number: 0,
-            ident:  String::new(),
-
-
-        }
-    }
-
-    pub fn reset(&mut self) {
-        self.index  = 0;
-        self.line   = 0;
-        self.column = 0;
-
-        self.ch       = None;
-        self.ch_lower = None;
-
-        self.number = 0;
-        self.ident  = String::new();
-    }
-
-    fn read_ch(&mut self) -> Option<char> {
-        if self.index >= self.file_content.len()
-        {
-            self.ch = None;
-            self.ch_lower = None;
-            return None;
-        }
-
-        let ch = self.file_content.chars().nth(self.index).unwrap();
-        self.index += 1;
-
-        if ch == '\n' {
-            self.line += 1;
-            self.column = 0;
-        }
-
-        // return
-        self.ch = Some(ch);
-        self.ch_lower = ch.to_lowercase().to_string().chars().nth(0);
-        return self.ch;
-    }
-
-    fn parse_number(&mut self) -> Vec<Symbol> {
-        /* fill a list with characters */
-        let mut xdigit_arr: Vec<char> = Vec::new();
-
-        xdigit_arr.push(self.ch_lower.unwrap());
-        loop {
-            match self.read_ch() {
-                None      => break,
-                Some('$') => continue,
-                _         => {
-                    if !self.ch_lower.unwrap().is_digit(16) {
-                        break;
-                    }
-
-                    xdigit_arr.push(self.ch_lower.unwrap());
-                }
-            }
-
-        }
-
-        /* detect base */
-        let base;
-
-        match self.ch_lower { /* non xdigit suffix */
-            Some('h') => { self.read_ch(); base = 16; },
-            Some('o') => { self.read_ch(); base =  8; },
-            Some('q') => { self.read_ch(); base =  8; },
-            _ => {
-                match xdigit_arr.last() { /* xdigit suffix */
-                    Some('b') => { xdigit_arr.pop(); base =  2; },
-                    Some('d') => { xdigit_arr.pop(); base = 10; },
-                    _ => {
-                        if !self.ch.unwrap().is_alphanumeric() {
-                            base = 10; /* implicit decimal */
-                        } else { /* error bad suffix */
-                            return vec![Symbol::Unknown];
-                        }
-                    }
-                }
-            }
-        }
-
-        /* convert iterable to number */
-        let mut number: u32 = 0;
-        for xdigit in xdigit_arr.into_iter() {
-            number *= base + xdigit.to_digit(base).unwrap();
-        }
-
-        self.number = number;
-
-        return vec![Symbol::Number];
-    }
-
-    fn parse_alpha(&mut self) -> Vec<Symbol> {
-
-        /* collect ident */
-        let mut ident_arr: Vec<char> = Vec::new();
-
-        ident_arr.push(self.ch_lower.unwrap());
-        loop {
-            match self.read_ch() {
-                None      => break,
-                Some('$') => continue,
-                Some('_') => continue,
-                _ => {
-                    if !self.ch_lower.unwrap().is_alphanumeric() {
-                        break;
-                    }
-                }
-            }
-
-            ident_arr.push(self.ch_lower.unwrap());
-        }
-        let ident: String = ident_arr.into_iter().collect();
-
-        /* check for keywords */
-        let kw_sym = self.kw_syms.get(&ident);
-        if !kw_sym.is_none() {
-            return kw_sym.unwrap().value().to_vec();
-        }
-
-        /* assume to be ident */
-        self.ident = ident;
-
-        return vec![Symbol::Ident];
-    }
-
-    pub fn parse_comment(&mut self) -> Vec<Symbol> {
-        let mut ident_arr: Vec<char> = Vec::new();
-
-        while !self.read_ch().is_none() && self.ch.unwrap() != '\n' {
-            ident_arr.push(self.ch.unwrap());
-        }
-
-        self.ident = ident_arr.into_iter().collect();
-        return vec![Symbol::Comment];
-    }
-
-    fn get_symbol(&mut self) -> Vec<Symbol> {
-        while !self.ch.is_none() && 
-                (self.ch.unwrap() == ' ' || self.ch.unwrap() == '\t') {
-            self.read_ch();
-        }
-
-        // symbols
-        match self.ch {
-            None       => { self.read_ch(); return vec![Symbol::EOF]; }
-            Some('\n') => { self.read_ch(); return vec![Symbol::Newline]; }
-            Some('!')  => { self.read_ch(); return vec![Symbol::Newline]; }
-            Some(',')  => { self.read_ch(); return vec![Symbol::Comma]; }
-            Some(':')  => { self.read_ch(); return vec![Symbol::Colon]; }
-            Some('$')  => { self.read_ch(); return vec![Symbol::MacroPC]; }
-            Some('+')  => { self.read_ch(); return vec![Symbol::MacroAdd]; }
-            Some('-')  => { self.read_ch(); return vec![Symbol::MacroSub]; }
-            Some('*')  => { self.read_ch(); return vec![Symbol::MacroMult]; }
-            Some('/')  => { self.read_ch(); return vec![Symbol::MacroDiv]; }
-            Some('%')  => { self.read_ch(); return vec![Symbol::MacroMod]; }
-            Some(';')  => return self.parse_comment(),
-            _ => {
-                // number
-                if self.ch.unwrap().is_digit(10) {
-                    return self.parse_number();
-                }
-
-                // ident, register, or opcode
-                if self.ch.unwrap().is_alphabetic() {
-                    return self.parse_alpha();
-                }
-
-                self.read_ch();
-                return vec![Symbol::Unknown];
-            }
-        }
-    }
-}
 
 impl Parser {
     pub fn new(file_content: &str) -> Self {
         Self {
-            lexer: Lexer::new(file_content),
+            lexer:  Lexer::new(file_content),
+            symbol: Vec::default(),
+
+            syntax_error: Vec::default(),
         }
     }
 
-    pub fn reset(&mut self) {
-        self.lexer.reset();
+    fn add_error(&mut self) {
+        self.syntax_error.push(self.lexer.position);
     }
 
-    pub fn parse(&mut self) {
-        loop {
-            let syms: Vec<Symbol> = self.lexer.get_symbol();
+    fn accept(&mut self, needles: &Vec<Symbol>) -> Option<Vec<Symbol>> {
+        let mut matches = Vec::new();
 
-            // [Ident Colon] [Opcode* [arg1[,arg2]]] [comment] Newline
+        for needle in needles {
+            for hay in &self.symbol {
+                if *hay == *needle {
+                    matches.push(*needle);
+                }
+            }
+        }
 
-            dbg!(&syms);
-            for sym in syms {
-                if sym == Symbol::EOF {
+        match matches.len() {
+            0 => return None,
+            _ => return Some(matches),
+        }
+    }
+
+    fn expect(&mut self, needles: &Vec<Symbol>) -> bool {
+        let matches = self.accept(&needles);
+        if matches.is_none() {
+            self.add_error();
+        }
+        self.next_symbol();
+        return !matches.is_none();
+    }
+
+    fn next_symbol(&mut self) {
+        self.symbol = self.lexer.get_symbol();
+        //dbg!(&self.symbol);
+    }
+
+    fn stmt_label_definition(&mut self) {
+        if self.accept(&vec![Symbol::Ident]).is_none() {
+            // not a label
+            return;
+        }
+
+        /* validate label definition */
+        self.next_symbol();
+        if !self.expect(&vec![Symbol::Colon]) {
+            return;
+        }
+
+        // valid label definition
+    }
+
+    fn stmt_opcode(&mut self) {
+        let opcode_list = vec![
+            Symbol::MacroORG,  Symbol::OpcodeMVI, Symbol::OpcodeMOV,
+            Symbol::OpcodeADD, Symbol::OpcodeJMP, Symbol::OpcodeRET,
+        ];
+
+        let reg8 = vec![
+            Symbol::RegB, Symbol::RegC, Symbol::RegD, Symbol::RegE,
+            Symbol::RegH, Symbol::RegL, Symbol::RegM, Symbol::RegA,
+        ];
+
+        let reg16_push = vec![
+            Symbol::RegPairPSW, Symbol::RegPairBC, 
+            Symbol::RegPairDE,  Symbol::RegPairHL,
+        ];
+
+        let reg16_alu = vec![
+            Symbol::RegPairBC, Symbol::RegPairDE,
+            Symbol::RegPairHL, Symbol::RegPairSP,
+        ];
+
+
+        let opcode_vec: Option<Vec<Symbol>> = self.accept(&opcode_list);
+        if opcode_vec.is_none() {
+            // not an opcode
+            return;
+        }
+        let opcode = opcode_vec.unwrap()[0];
+        self.next_symbol();
+
+        match opcode {
+            Symbol::MacroORG => {
+                if !self.expect(&vec![Symbol::NumberWord]) {
                     return;
                 }
             }
+            Symbol::OpcodeLXI => {
+                if !(self.expect(&reg16_alu)
+                     && self.expect(&vec![Symbol::Comma])
+                     && self.expect(&vec![Symbol::NumberWord]))
+                {
+                    return;
+                }
+            }
+            Symbol::OpcodeINX | Symbol::OpcodeDCX | Symbol::OpcodeDAD => {
+                if !self.expect(&reg16_alu) {
+                    return;
+                }
+            }
+            Symbol::OpcodeSTAX | Symbol::OpcodeLDAX => {
+                if !self.expect(&vec![Symbol::RegPairBC, Symbol::RegPairDE]) {
+                    return;
+                }
+            }
+            Symbol::OpcodePUSH | Symbol::OpcodePop => {
+                if !self.expect(reg16_push) {
+                    return;
+                }
+            }
+            Symbol::OpcodeOUT  | Symbol::OpcodeIN   |
+            Symbol::OpcodeADI  | Symbol::OpcodeACI  |
+            Symbol::OpcodeSUI  | Symbol::OpcodeSBI  |
+            Symbol::OpcodeANI  | Symbol::OpcodeXRI  |
+            Symbol::OpcodeORI  | Symbol::OpcodeCPI => {
+                if !self.expect(&vec![Symbol::NumberByte]) {
+                    return;
+                }
+            }
+            Symbol::OpcodeRST => {
+                if self.accept(&vec!{Symbol::NumberByte]).is_none()
+                   || self.lexer.number > 7
+                {
+                    self.next_symbol();
+                    self.add_error();
+                    return;
+                }
+            }
+            Symbol::OpcodeMVI = {
+                if !(self.expect(&reg8)
+                     && self.expect(&vec![Symbol::Comma])
+                     && self.expect(&vec![Symbol::NumberByte]))
+                {
+                    return;
+                }
+            }
+            Symbol::OpcodeMOV => {
+                if !(self.expect(&reg8)
+                     && self.expect(&vec![Symbol::Comma])
+                     && self.expect(&reg8))
+                {
+                    return;
+                }
+            }
+            Symbol::OpcodeINR  | Symbol::OpcodeDCR  |
+            Symbol::OpcodeADD  | Symbol::OpcodeADC  |
+            Symbol::OpcodeSUB  | Symbol::OpcodeSBB  |
+            Symbol::OpcodeANA  | Symbol::OpcodeXRA  |
+            Symbol::OpcodeORA  | Symbol::OpcodeCMP => {
+                if !self.expect(&reg8) {
+                    return;
+                }
+            }
+            Symbol::OpcodeSHLD | Symbol::OpcodeLHLD |
+            Symbol::OpcodeSTA  | Symbol::OpcodeLDA  |
+            Symbol::OpcodeJMP  | Symbol::OpcodeJNZ  | Symbol::OpcodeJNC  |
+            Symbol::OpcodeJPO  | Symbol::OpcodeJP   | Symbol::OpcodeJZ   |
+            Symbol::OpcodeJC   | Symbol::OpcodeJPE  | Symbol::OpcodeJM   |
+            Symbol::OpcodeCALL | Symbol::OpcodeCNZ  | Symbol::OpcodeCNC  |
+            Symbol::OpcodeCPO  | Symbol::OpcodeCP   | Symbol::OpcodeCZ   |
+            Symbol::OpcodeCC   | Symbol::OpcodeCPE  | Symbol::OpcodeCM => {
+                if !self.expect(&vec![Symbol::NumberWord]) {
+                    return;
+                }
+            }
+            Symbol::OpcodeNOP  | Symbol::OpcodeHLT  |
+            Symbol::OpcodeRLC  | Symbol::OpcodeRAL  |
+            Symbol::OpcodeDAA  | Symbol::OpcodeSTC  |
+            Symbol::OpcodeRRC  | Symbol::OpcodeRAR  |
+            Symbol::OpcodeCMA  | Symbol::OpcodeCMC  |
+            Symbol::OpcodeRET  | Symbol::OpcodeRNZ  | Symbol::OpcodeRNC  |
+            Symbol::OpcodeRPO  | Symbol::OpcodeRP   | Symbol::OpcodeRZ   |
+            Symbol::OpcodeRC   | Symbol::OpcodeRPE  | Symbol::OpcodeRM   |
+            Symbol::OpcodeXTHL | Symbol::OpcodeXCHG |
+            Symbol::OpcodeDI   | Symbol::OpcodeEI   |
+            Symbol::OpcodeSPHL | Symbol::OpcodePCHL => {
+                return;
+            }
+            _ => {
+                // unreachable
+                self.add_error();
+                return;
+            }
+        }
+    }
+
+    fn stmt_line(&mut self) {
+        self.stmt_label_definition();
+        self.stmt_opcode();
+
+        if !self.accept(&vec![Symbol::Comment]).is_none() {
+            self.next_symbol();
+        }
+
+        self.expect(&vec![Symbol::Newline]);
+    }
+
+
+    pub fn parse(&mut self) {
+        self.next_symbol();
+
+        while self.accept(&vec![Symbol::EOF]).is_none() {
+            self.stmt_line();
         }
     }
 }

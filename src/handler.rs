@@ -23,12 +23,48 @@ impl Backend {
     }
 }
 
+impl Backend {
+    fn get_diagnostics(&self, uri: Uri) -> Vec<Diagnostic> {
+        dbg!("diagnostic");
+
+        let ctx: &FileContext = &self.context.get(&uri).unwrap();
+
+        let mut full_diagnostics: Vec<Diagnostic> = Vec::default();
+        for range in ctx.parser.syntax_error.clone() {
+            full_diagnostics.push(Diagnostic {
+                range,
+                severity: Some(DiagnosticSeverity::ERROR),
+                message: String::from("syntax error"),
+                ..Default::default()
+            });
+        }
+
+        return full_diagnostics;
+    }
+
+    async fn parse_file(&self, uri: Uri, text: &str) {
+        // parse the file
+        let mut ctx = FileContext::new(text);
+        ctx.parse_file();
+        self.context.insert(uri.clone(), ctx);
+
+        // publish diagnostics
+        self.client
+            .publish_diagnostics(uri.clone(), self.get_diagnostics(uri), None)
+            .await;
+    }
+}
+
 impl LanguageServer for Backend {
     async fn initialize(&self, _params: InitializeParams) -> 
             Result<InitializeResult> {
         dbg!("initialize");
 
         Ok(InitializeResult {
+            server_info: Some(ServerInfo {
+                name: String::from("intel8080 LSP"),
+                version: Some(String::from("0.1.0")),
+            }),
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
@@ -40,16 +76,24 @@ impl LanguageServer for Backend {
         })
     }
 
+    async fn initialized(&self, _params: InitializedParams) {
+        dbg!("initialized");
+        self.client
+            .log_message(MessageType::INFO, "server initialized!")
+            .await;
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        dbg!("shutdown");
+        Ok(())
+    }
+
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         dbg!("did_open");
         let uri: Uri = params.text_document.uri;
         let text: &String = &params.text_document.text;
 
-        // get text file contents
-        let mut ctx: FileContext = FileContext::new(text);
-        ctx.parse_file();
-
-        self.context.insert(uri, ctx);
+        self.parse_file(uri, text).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -66,11 +110,8 @@ impl LanguageServer for Backend {
         let change = &params.content_changes.first().unwrap();
         assert_eq!(change.range, None); // only support SyncKind::FULL
 
-        let mut ctx = FileContext::new(&change.text);
-        ctx.parse_file();
-
-        // save the FileContext
-        self.context.insert(uri, ctx);
+        // parse the file
+        self.parse_file(uri, &change.text).await;
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
@@ -89,17 +130,5 @@ impl LanguageServer for Backend {
                 value: hover_value,
             }),
         }))
-    }
-
-    async fn initialized(&self, _params: InitializedParams) {
-        dbg!("initialized");
-        self.client
-            .log_message(MessageType::INFO, "server initialized!")
-            .await;
-    }
-
-    async fn shutdown(&self) -> Result<()> {
-        dbg!("shutdown");
-        Ok(())
     }
 }
