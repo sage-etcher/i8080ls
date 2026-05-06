@@ -4,16 +4,31 @@ use crate::lexer::Lexer;
 use crate::err::{InternalErrorCode, InternalError};
 
 #[derive(Debug)]
-enum Stage { Error, One, Two, Three }
+enum Stage {
+    Error,
+    Preprocessor,
+    Label,
+    Opcode,
+}
+
+#[derive(Debug)]
+pub struct MacroElement {
+}
+
+#[derive(Debug)]
+pub struct LabelElement {
+}
 
 #[derive(Debug)]
 pub struct Parser {
     lexer: Lexer,
     symbol: Vec<Symbol>,
 
-    pub error_list: Vec<InternalError>,
-
     stage: Stage,
+
+    pub error_list: Vec<InternalError>,
+    pub macro_list: Vec<MacroElement>,
+    pub label_list: Vec<LabelElement>,
 }
 
 #[derive(Debug)]
@@ -28,9 +43,12 @@ impl Parser {
             lexer:  Lexer::new(file_content),
             symbol: Vec::default(),
 
-            error_list: Vec::default(),
-
             stage: Stage::Error,
+
+            error_list: Vec::default(),
+            macro_list: Vec::default(),
+            label_list: Vec::default(),
+
         }
     }
 
@@ -86,9 +104,17 @@ impl Parser {
             self.next_symbol();
         }
 
-        /* macro definition */
+        // macro definition
         if !self.accept(&vec![Symbol::MacroEQU, Symbol::MacroSET]).is_none() {
             self.next_symbol();
+
+            if self.stage == Stage::Preprocessor {
+                // add preprocessor value to list
+            }
+        } else { // implicit file offset
+            if self.stage == Stage::Label {
+                // add label declaration
+            }
         }
 
         // }}}
@@ -335,19 +361,14 @@ impl Parser {
     }
 
     pub fn parse(&mut self) {
-        /* IDENT EQU TO_EOL NEWLINE
-         * IDENT SET TO_EOL NEWLINE */
-        self.parse_step(Stage::One);
-        return;
+        // get preprocessor set/equ macros
+        self.parse_step(Stage::Preprocessor);
 
-        // evaluate macros
-        // collect labels
-        self.parse_step(Stage::Two);
+        // get position dependant labels
+        self.parse_step(Stage::Label);
 
-        // evaluate macros
-        // evaluate labels
-        // validate opcodes
-        self.parse_step(Stage::Three);
+        // validate symbols
+        //self.parse_step(Stage::Opcode);
     }
 }
 

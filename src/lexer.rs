@@ -249,7 +249,6 @@ impl Lexer {
         self.read_ch();
         self.set_pos_end();
         if ch.is_none() || ch.unwrap() != '\'' {
-            dbg!(&ch);
             return vec![Symbol::Unknown];
         }
 
@@ -257,8 +256,6 @@ impl Lexer {
         let ident_bytes: &[u8] = ident.as_bytes();
 
         self.ident = ident.clone();
-
-        dbg!(&ident_bytes);
         match ident_bytes.len() {
             1 => {
                 self.number = ident_bytes[0] as u32;
