@@ -34,6 +34,7 @@ pub enum Symbol {
     NumberByte,
     NumberWord,
     NumberOverflow,
+    StringASCII,
     Comma,
     Colon,
     Ident,
@@ -126,8 +127,6 @@ impl Symbol {
 
         kw_map.insert(String::from("org"),  vec![Symbol::MacroORG]);
         kw_map.insert(String::from("end"),  vec![Symbol::MacroEND]);
-        kw_map.insert(String::from("equ"),  vec![Symbol::MacroEQU]);
-        kw_map.insert(String::from("set"),  vec![Symbol::MacroSET]);
         kw_map.insert(String::from("db"),   vec![Symbol::MacroDB]);
         kw_map.insert(String::from("dw"),   vec![Symbol::MacroDW]);
         kw_map.insert(String::from("ds"),   vec![Symbol::MacroDS]);

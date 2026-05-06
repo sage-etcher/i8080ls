@@ -3,10 +3,8 @@ use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer};
 
-use crate::code_elements::CodeMacro;
 use crate::data_types::FxDashMap;
 use crate::parser::FileContext;
-
 
 #[derive(Debug)]
 pub struct Backend {
@@ -30,11 +28,11 @@ impl Backend {
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
 
         let mut full_diagnostics: Vec<Diagnostic> = Vec::default();
-        for range in ctx.parser.syntax_error.clone() {
+        for error in &ctx.parser.error_list {
             full_diagnostics.push(Diagnostic {
-                range,
+                range: error.range,
                 severity: Some(DiagnosticSeverity::ERROR),
-                message: String::from("syntax error"),
+                message: String::from(error.get_errstr()),
                 ..Default::default()
             });
         }
@@ -114,14 +112,10 @@ impl LanguageServer for Backend {
         self.parse_file(uri, &change.text).await;
     }
 
-    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+    async fn hover(&self, _params: HoverParams) -> Result<Option<Hover>> {
         dbg!("hover");
 
-        let uri: Uri = params.text_document_position_params.text_document.uri;
-        let ctx: &FileContext = &self.context.get(&uri).unwrap();
-
-        let debug_hover: &CodeMacro = &ctx.macros.get("debug_hover").unwrap();
-        let hover_value: String = format!("# {}\n", debug_hover.macro_text);
+        let hover_value: String = String::from("hover test");
 
         Ok(Some(Hover {
             range: None,
