@@ -7,10 +7,10 @@ use crate::symbol::Symbol;
 
 #[derive(Debug)]
 pub struct Lexer {
-    file_content: String,
+    pub file_content: String,
     index: usize,
-    ch: Option<char>,
-    ch_lower: Option<char>,
+    pub ch: Option<char>,
+    pub ch_lower: Option<char>,
 
     line: u32,
     character: u32,
@@ -116,6 +116,7 @@ impl Lexer {
         let base;
 
         match self.ch_lower { /* non xdigit suffix */
+            None      => { base = 10; },
             Some('h') => { self.read_ch(); base = 16; },
             Some('o') => { self.read_ch(); base =  8; },
             Some('q') => { self.read_ch(); base =  8; },
@@ -211,8 +212,9 @@ impl Lexer {
     fn parse_to_end_of_line(&mut self) {
         let mut ident_arr: Vec<char> = Vec::new();
 
-        while !self.read_ch().is_none() && self.ch.unwrap() != '\n' {
+        while !self.ch.is_none() && self.ch.unwrap() != '\n' {
             ident_arr.push(self.ch.unwrap());
+            self.read_ch();
         }
         self.set_pos_end();
 
@@ -229,6 +231,7 @@ impl Lexer {
 
     pub fn parse_comment(&mut self) -> Vec<Symbol> {
         self.set_pos_start();
+        self.read_ch();
         self.parse_to_end_of_line();
         return vec![Symbol::Comment];
     }

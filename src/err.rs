@@ -20,6 +20,9 @@ pub enum InternalErrorCode {
     SyntaxDataByte,
     SyntaxDataWord,
     SyntaxNewline,
+    EndOffsetMismatch,
+    OffsetNotSet,
+    UnknownMacro,
 }
 
 #[derive(Debug)]
@@ -55,6 +58,9 @@ impl InternalError {
             "expected intermediate string or byte: 0-255",
             "expected intermediate word: 0-65535",
             "expected newline",
+            "end offset differs from previous org statement",
+            "cannot updaate offset, no previous org statement",
+            "unknown macro/label",
         ];
 
         if self.errcode as usize >= errstr_list.len() {

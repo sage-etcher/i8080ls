@@ -37,8 +37,6 @@ impl Backend {
             });
         }
 
-        dbg!(&ctx.parser.macro_list);
-
         return full_diagnostics;
     }
 

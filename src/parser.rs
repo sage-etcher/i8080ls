@@ -27,11 +27,12 @@ pub struct Parser {
     lexer: Lexer,
     symbol: Vec<Symbol>,
 
+    origin: Option<u32>,
+    offset: Option<u32>,
     stage: Stage,
 
     pub error_list: Vec<InternalError>,
     pub macro_list: FxDashMap<String, MacroElement>,
-    pub label_list: FxDashMap<String, MacroElement>,
 }
 
 #[derive(Debug)]
@@ -56,25 +57,32 @@ impl Parser {
             lexer:  Lexer::new(file_content),
             symbol: Vec::default(),
 
+            origin: None,
+            offset: None,
             stage: Stage::Error,
 
             error_list: Vec::default(),
             macro_list: FxDashMap::default(),
-            label_list: FxDashMap::default(),
-
         }
     }
 
-    fn add_error(&mut self, errcode: InternalErrorCode) {
-        self.error_list.push(InternalError::new(self.lexer.position, errcode));
+    fn add_error(&mut self, stage: Stage, errcode: InternalErrorCode) {
+        if stage == self.stage {
+            //dbg!(&stage);
+            //dbg!(&errcode);
+            //dbg!(&self.lexer.position);
+            //dbg!(&self.symbol);
+            //println!("Custom backtrace: {}", Backtrace::force_capture());
+            self.error_list.push(InternalError::new(self.lexer.position, errcode));
+        }
     }
 
-    fn accept(&mut self, needles: &Vec<Symbol>) -> Option<Vec<Symbol>> {
+    fn accept_raw(haystack: &Vec<Symbol>, needles: &Vec<Symbol>) -> Option<Vec<Symbol>> {
         // {{{
         let mut matches = Vec::new();
 
         for needle in needles {
-            for hay in &self.symbol {
+            for hay in haystack {
                 if *hay == *needle {
                     matches.push(*needle);
                 }
@@ -88,11 +96,60 @@ impl Parser {
         // }}}
     }
 
-    fn expect(&mut self, needles: &Vec<Symbol>, errcode: InternalErrorCode) -> bool {
+    fn accept(&mut self, needles: &Vec<Symbol>) -> Option<Vec<Symbol>> {
+        let base_matches = Parser::accept_raw(&self.symbol, needles);
+        if !base_matches.is_none() {
+            return base_matches;
+        }
+
+        // if symbol can't be an ident, return None, else
+        if Parser::accept_raw(&vec![Symbol::Ident], &self.symbol).is_none() {
+            return None;
+        }
+
+        // macro expansion
+        let macro_values = self.eval_macro(self.lexer.ident.clone());
+        if macro_values.is_none() {
+            self.add_error(Stage::Opcode, InternalErrorCode::UnknownMacro);
+            return None;
+        }
+        // check if macro matches needle
+        return Parser::accept_raw(&self.symbol, needles);
+    }
+
+    fn eval_macro(&mut self, macro_name: String) -> Option<Vec<Symbol>> {
+        if self.stage != Stage::Opcode {
+            return None;
+        }
+
+        let macro_lookup = self.macro_list.get(&macro_name);
+        if macro_lookup.is_none() {
+            return None;
+        }
+
+        let macro_value = macro_lookup.unwrap();
+        let mut sub_lexer = Lexer::new(&macro_value.value().value);
+
+        sub_lexer.read_ch();
+        let macro_syms = sub_lexer.get_symbol();
+
+        match macro_syms.len() {
+            0 => return None,
+            _ => {
+                self.symbol       = macro_syms.clone();
+                self.lexer.number = sub_lexer.number;
+                self.lexer.ident  = sub_lexer.ident;
+                return Some(macro_syms);
+            },
+        }
+    }
+
+    fn expect(&mut self, needles: &Vec<Symbol>, stage: Stage, 
+              errcode: InternalErrorCode) -> bool {
         // {{{
         let matches = self.accept(&needles);
         if matches.is_none() {
-            self.add_error(errcode);
+            self.add_error(stage, errcode);
         }
         self.next_symbol();
         return !matches.is_none();
@@ -107,11 +164,15 @@ impl Parser {
 
     fn stmt_label_definition(&mut self) {
         // {{{
+        //dbg!(&self.lexer.position);
+        //dbg!(&self.symbol);
         if self.accept(&vec![Symbol::Ident]).is_none() {
             // not a label
             return;
         }
-        let macro_name = String::from(self.lexer.ident.clone());
+
+        let macro_name  = String::from(self.lexer.ident.clone());
+        let declaration = self.lexer.position;
         self.next_symbol();
 
         if !self.accept(&vec![Symbol::Colon]).is_none() {
@@ -125,21 +186,35 @@ impl Parser {
             if self.stage == Stage::Preprocessor {
                 // add preprocessor value to list
                 self.macro_list.insert(macro_name.clone(), MacroElement::new(
-                        macro_name, macro_value, self.lexer.position));
+                        macro_name, macro_value, declaration));
             }
 
             self.next_symbol();
 
         } else { // implicit file offset
             if self.stage == Stage::Label {
-                //let macro_value = PC;
-                //self.label_list.insert(macro_name.clone(), MacroElement::new(
-                //        macro_name, macro_value, self.lexer.position));
-                // add label declaration
+                if self.origin.is_none() {
+                    self.add_error(Stage::Opcode, InternalErrorCode::OffsetNotSet);
+                    return
+                }
+                let macro_value = format!("0{:x}h", self.offset.unwrap());
+                self.macro_list.insert(macro_name.clone(), MacroElement::new(
+                        macro_name, macro_value, declaration));
             }
         }
 
         // }}}
+    }
+
+    fn inc_offset(&mut self, n: u32) {
+        if self.origin.is_none() {
+            if self.stage == Stage::Label {
+                self.add_error(Stage::Opcode, InternalErrorCode::OffsetNotSet);
+            }
+            return;
+        }
+
+        self.offset = Some(self.offset.unwrap() + n);
     }
 
     fn stmt_opcode(&mut self) {
@@ -200,83 +275,125 @@ impl Parser {
 
         match opcode {
             Symbol::MacroORG => {
-                if self.expect(&vec![Symbol::NumberWord], 
-                                InternalErrorCode::SyntaxIntermediateWord) {
-                    return;
+                if !self.accept(&vec![Symbol::NumberWord]).is_none() {
+                    self.offset = Some(self.lexer.number);
+                    self.origin = Some(self.lexer.number);
+                } else {
+                    // missing word, throw error
+                    self.add_error(Stage::Opcode, InternalErrorCode::SyntaxIntermediateWord);
                 }
+
+                self.next_symbol();
             }
             Symbol::MacroEND => {
                 if !self.accept(&vec![Symbol::NumberWord]).is_none() {
+                    if self.origin != Some(self.lexer.number) &&
+                       self.stage  == Stage::Label
+                    {
+                        self.add_error(Stage::Opcode, InternalErrorCode::EndOffsetMismatch);
+                    }
                     self.next_symbol();
-                    return
                 }
+                self.origin = None;
+                self.offset = None;
             }
             Symbol::MacroDB => {
-                if !self.expect(&vec![Symbol::NumberByte, Symbol::StringASCII],
-                               InternalErrorCode::SyntaxDataByte) {
+                if self.accept(&vec![Symbol::NumberByte, Symbol::StringASCII]).is_none() {
+                    self.add_error(Stage::Opcode, InternalErrorCode::SyntaxDataByte);
+                    self.next_symbol();
                     return;
                 }
+                if !self.accept(&vec![Symbol::StringASCII]).is_none() {
+                    self.inc_offset(self.lexer.ident.len() as u32);
+                } else {
+                    self.inc_offset(1);
+                }
+                self.next_symbol();
 
                 while !self.accept(&vec![Symbol::Comma]).is_none() {
                     self.next_symbol();
-                    if !self.expect(&vec![Symbol::NumberByte, Symbol::StringASCII],
-                                   InternalErrorCode::SyntaxDataByte) {
+
+                    if self.accept(&vec![Symbol::NumberByte, Symbol::StringASCII]).is_none() {
+                        self.add_error(Stage::Opcode, InternalErrorCode::SyntaxDataByte);
+                        self.next_symbol();
                         return;
                     }
+
+                    if !self.accept(&vec![Symbol::StringASCII]).is_none() {
+                        self.inc_offset(self.lexer.ident.len() as u32);
+                    } else {
+                        self.inc_offset(1);
+                    }
+                    self.next_symbol();
                 }
             }
             Symbol::MacroDW => {
-                if !self.expect(&vec![Symbol::NumberWord],
-                                InternalErrorCode::SyntaxDataWord) {
+                if self.accept(&vec![Symbol::NumberWord]).is_none() {
+                    self.add_error(Stage::Opcode, InternalErrorCode::SyntaxDataWord);
+                    self.next_symbol();
                     return;
                 }
+                self.inc_offset(2);
+                self.next_symbol();
 
                 while !self.accept(&vec![Symbol::Comma]).is_none() {
                     self.next_symbol();
-                    if !self.expect(&vec![Symbol::NumberWord],
-                                   InternalErrorCode::SyntaxDataWord) {
+
+                    if self.accept(&vec![Symbol::NumberWord]).is_none() {
+                        self.add_error(Stage::Opcode, InternalErrorCode::SyntaxDataWord);
+                        self.next_symbol();
                         return;
                     }
+
+                    self.inc_offset(2);
+                    self.next_symbol();
+
                 }
             }
             Symbol::MacroDS => {
-                if !self.expect(&vec![Symbol::NumberWord],
-                                InternalErrorCode::SyntaxIntermediateWord) {
+                if self.accept(&vec![Symbol::NumberWord]).is_none() {
+                    self.add_error(Stage::Opcode, InternalErrorCode::SyntaxIntermediateWord);
+                    self.next_symbol();
                     return;
                 }
+                self.inc_offset(self.lexer.number);
+                self.next_symbol();
             }
 
             /* stage 3 */
             Symbol::OpcodeLXI => {
+                self.inc_offset(3);
                 if !(self.expect(&reg16_alu, 
-                                 InternalErrorCode::SyntaxRegisterPair)
-                     && self.expect(&vec![Symbol::Comma], 
+                                 Stage::Opcode, InternalErrorCode::SyntaxRegisterPair)
+                     && self.expect(&vec![Symbol::Comma], Stage::Opcode, 
                                     InternalErrorCode::SyntaxMissingComma)
-                     && self.expect(&vec![Symbol::NumberWord], 
+                     && self.expect(&vec![Symbol::NumberWord], Stage::Opcode, 
                                     InternalErrorCode::SyntaxIntermediateWord))
                 {
                     return;
                 }
             }
             Symbol::OpcodeINX | Symbol::OpcodeDCX | Symbol::OpcodeDAD => {
-                if !self.expect(&reg16_alu, 
+                self.inc_offset(1);
+                if !self.expect(&reg16_alu, Stage::Opcode, 
                                 InternalErrorCode::SyntaxRegisterPair) {
                     return;
                 }
             }
             Symbol::OpcodeSTAX | Symbol::OpcodeLDAX => {
                 if !self.expect(&vec![Symbol::RegPairBC, Symbol::RegPairDE],
-                                InternalErrorCode::SyntaxRegisterPairBD) {
+                                Stage::Opcode, InternalErrorCode::SyntaxRegisterPairBD) {
                     return;
                 }
             }
             Symbol::OpcodePUSH | Symbol::OpcodePOP => {
+                self.inc_offset(1);
                 let reg16_push = vec![
                     Symbol::RegPairPSW, Symbol::RegPairBC, 
                     Symbol::RegPairDE,  Symbol::RegPairHL,
                 ];
 
-                if !self.expect(&reg16_push, 
+                if !self.expect(&reg16_push, Stage::Opcode, 
                                 InternalErrorCode::SyntaxRegisterPairPush) {
                     return;
                 }
@@ -286,37 +403,45 @@ impl Parser {
             Symbol::OpcodeSUI  | Symbol::OpcodeSBI  |
             Symbol::OpcodeANI  | Symbol::OpcodeXRI  |
             Symbol::OpcodeORI  | Symbol::OpcodeCPI => {
-                if !self.expect(&vec![Symbol::NumberByte],
+                self.inc_offset(2);
+                if !self.expect(&vec![Symbol::NumberByte], Stage::Opcode, 
                                 InternalErrorCode::SyntaxIntermediateByte) {
                     return;
                 }
             }
             Symbol::OpcodeRST => {
+                self.inc_offset(1);
                 if self.accept(&vec![Symbol::NumberByte]).is_none()
                    || self.lexer.number > 7
                 {
-                    dbg!(&self.lexer.number);
+                    //dbg!(&self.lexer.number);
                     self.next_symbol();
-                    self.add_error(InternalErrorCode::SyntaxIntermediateRST);
+                    self.add_error(Stage::Opcode, 
+                                   InternalErrorCode::SyntaxIntermediateRST);
                     return;
                 }
                 self.next_symbol();
             }
             Symbol::OpcodeMVI => {
-                if !(self.expect(&reg8, InternalErrorCode::SyntaxRegister)
-                     && self.expect(&vec![Symbol::Comma],
+                self.inc_offset(2);
+                if !(self.expect(&reg8, Stage::Opcode, 
+                                 InternalErrorCode::SyntaxRegister)
+                     && self.expect(&vec![Symbol::Comma], Stage::Opcode, 
                                     InternalErrorCode::SyntaxMissingComma)
-                     && self.expect(&vec![Symbol::NumberByte],
+                     && self.expect(&vec![Symbol::NumberByte], Stage::Opcode, 
                                     InternalErrorCode::SyntaxIntermediateByte))
                 {
                     return;
                 }
             }
             Symbol::OpcodeMOV => {
-                if !(self.expect(&reg8, InternalErrorCode::SyntaxRegister)
-                     && self.expect(&vec![Symbol::Comma],
+                self.inc_offset(1);
+                if !(self.expect(&reg8, Stage::Opcode, 
+                                 InternalErrorCode::SyntaxRegister)
+                     && self.expect(&vec![Symbol::Comma], Stage::Opcode, 
                                     InternalErrorCode::SyntaxMissingComma)
-                     && self.expect(&reg8, InternalErrorCode::SyntaxRegister))
+                     && self.expect(&reg8, Stage::Opcode, 
+                                    InternalErrorCode::SyntaxRegister))
                 {
                     return;
                 }
@@ -326,7 +451,9 @@ impl Parser {
             Symbol::OpcodeSUB  | Symbol::OpcodeSBB  |
             Symbol::OpcodeANA  | Symbol::OpcodeXRA  |
             Symbol::OpcodeORA  | Symbol::OpcodeCMP => {
-                if !self.expect(&reg8, InternalErrorCode::SyntaxRegister) {
+                self.inc_offset(1);
+                if !self.expect(&reg8, Stage::Opcode, 
+                                InternalErrorCode::SyntaxRegister) {
                     return;
                 }
             }
@@ -338,7 +465,8 @@ impl Parser {
             Symbol::OpcodeCALL | Symbol::OpcodeCNZ  | Symbol::OpcodeCNC  |
             Symbol::OpcodeCPO  | Symbol::OpcodeCP   | Symbol::OpcodeCZ   |
             Symbol::OpcodeCC   | Symbol::OpcodeCPE  | Symbol::OpcodeCM => {
-                if !self.expect(&vec![Symbol::NumberWord], 
+                self.inc_offset(3);
+                if !self.expect(&vec![Symbol::NumberWord], Stage::Opcode, 
                                 InternalErrorCode::SyntaxIntermediateWord) {
                     return;
                 }
@@ -354,11 +482,12 @@ impl Parser {
             Symbol::OpcodeXTHL | Symbol::OpcodeXCHG |
             Symbol::OpcodeDI   | Symbol::OpcodeEI   |
             Symbol::OpcodeSPHL | Symbol::OpcodePCHL => {
+                self.inc_offset(1);
                 return;
             }
             _ => {
                 // unreachable
-                self.add_error(InternalErrorCode::SyntaxUnknown);
+                self.add_error(Stage::Opcode, InternalErrorCode::SyntaxUnknown);
                 return;
             }
         }
@@ -369,7 +498,7 @@ impl Parser {
         self.stage = stage;
 
         self.next_symbol();
-        while self.accept(&vec![Symbol::EOF]).is_none() {
+        while !self.lexer.ch.is_none() {
 
             self.stmt_label_definition();
             self.stmt_opcode();
@@ -378,19 +507,25 @@ impl Parser {
                 self.next_symbol();
             }
 
-            self.expect(&vec![Symbol::Newline], InternalErrorCode::SyntaxNewline);
+            self.expect(&vec![Symbol::Newline], 
+                        Stage::Opcode, InternalErrorCode::SyntaxNewline);
         }
     }
 
     pub fn parse(&mut self) {
-        // get preprocessor set/equ macros
-        self.parse_step(Stage::Preprocessor);
+        let stages: Vec<Stage> = vec!(
+            Stage::Preprocessor,    // get preprocessor set/equ macros
+            Stage::Label,           // get position dependant labels
+            Stage::Opcode,          // validate symbols
+        );
 
-        // get position dependant labels
-        self.parse_step(Stage::Label);
-
-        // validate symbols
-        //self.parse_step(Stage::Opcode);
+        for stage in stages {
+            self.origin = None;
+            self.offset = None;
+            self.lexer = Lexer::new(&self.lexer.file_content);
+            self.lexer.read_ch();
+            self.parse_step(stage);
+        }
     }
 }
 
@@ -403,7 +538,6 @@ impl FileContext {
 
     pub fn parse_file(&mut self) {
         // parse code
-        self.parser.lexer.read_ch();
         self.parser.parse();
     }
 }
