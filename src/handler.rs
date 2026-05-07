@@ -28,6 +28,8 @@ impl Backend {
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
 
         let mut full_diagnostics: Vec<Diagnostic> = Vec::default();
+
+        // add parsing errors
         for error in &ctx.parser.error_list {
             full_diagnostics.push(Diagnostic {
                 range: error.range,
@@ -35,6 +37,12 @@ impl Backend {
                 message: String::from(error.get_errstr()),
                 ..Default::default()
             });
+        }
+
+        // loop over macro_list, throw warnings for any label that does not
+        // have any references
+        for i in 0..ctx.parser.macro_list.iter().count() {
+            // loop 
         }
 
         return full_diagnostics;

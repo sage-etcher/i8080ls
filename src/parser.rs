@@ -132,12 +132,14 @@ impl Parser {
             return None;
         }
 
-        let macro_lookup = self.macro_list.get(&macro_name);
+        let macro_lookup = self.macro_list.get_mut(&macro_name);
         if macro_lookup.is_none() {
             return None;
         }
 
-        let macro_value = macro_lookup.unwrap();
+        let mut macro_value = macro_lookup.unwrap();
+        macro_value.references.push(self.lexer.position);
+
         let mut sub_lexer = Lexer::new(&macro_value.value().value);
 
         sub_lexer.read_ch();
