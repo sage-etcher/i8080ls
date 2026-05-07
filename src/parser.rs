@@ -102,6 +102,16 @@ impl Parser {
             return base_matches;
         }
 
+        // if symbol is a $ PC replace with number
+        if !Parser::accept_raw(&vec![Symbol::MacroPC], &self.symbol).is_none() {
+
+            self.symbol = vec![Symbol::NumberWord];
+            if !self.offset.is_none() {
+                self.lexer.number = self.offset.unwrap();
+            }
+            return Parser::accept_raw(&self.symbol, needles);
+        }
+
         // if symbol can't be an ident, return None, else
         if Parser::accept_raw(&vec![Symbol::Ident], &self.symbol).is_none() {
             return None;
@@ -222,7 +232,6 @@ impl Parser {
         let opcode_list = vec![
             Symbol::MacroORG,   Symbol::MacroEND,   
             Symbol::MacroDB,    Symbol::MacroDW,    Symbol::MacroDS,    
-            Symbol::MacroPC,    
             //Symbol::MacroAdd,   Symbol::MacroSub,   Symbol::MacroMult,  
             //Symbol::MacroDiv,   Symbol::MacroMod,   
             Symbol::OpcodeACI,  Symbol::OpcodeADC,  Symbol::OpcodeADD,  
