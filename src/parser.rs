@@ -1,9 +1,12 @@
 
+use tower_lsp_server::ls_types::Range;
+
+use crate::data_types::FxDashMap;
 use crate::symbol::Symbol;
 use crate::lexer::Lexer;
 use crate::err::{InternalErrorCode, InternalError};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Stage {
     Error,
     Preprocessor,
@@ -13,10 +16,10 @@ enum Stage {
 
 #[derive(Debug)]
 pub struct MacroElement {
-}
-
-#[derive(Debug)]
-pub struct LabelElement {
+    key: String,
+    value: String,
+    declaration: Range,
+    references: Vec<Range>,
 }
 
 #[derive(Debug)]
@@ -27,8 +30,8 @@ pub struct Parser {
     stage: Stage,
 
     pub error_list: Vec<InternalError>,
-    pub macro_list: Vec<MacroElement>,
-    pub label_list: Vec<LabelElement>,
+    pub macro_list: FxDashMap<String, MacroElement>,
+    pub label_list: FxDashMap<String, MacroElement>,
 }
 
 #[derive(Debug)]
@@ -36,6 +39,16 @@ pub struct FileContext {
     pub parser: Parser,
 }
 
+impl MacroElement {
+    pub fn new(key: String, value: String, declaration: Range) -> Self {
+        Self {
+            key, 
+            value,
+            declaration,
+            references: Vec::default(),
+        }
+    }
+}
 
 impl Parser {
     pub fn new(file_content: &str) -> Self {
@@ -46,8 +59,8 @@ impl Parser {
             stage: Stage::Error,
 
             error_list: Vec::default(),
-            macro_list: Vec::default(),
-            label_list: Vec::default(),
+            macro_list: FxDashMap::default(),
+            label_list: FxDashMap::default(),
 
         }
     }
@@ -98,6 +111,7 @@ impl Parser {
             // not a label
             return;
         }
+        let macro_name = String::from(self.lexer.ident.clone());
         self.next_symbol();
 
         if !self.accept(&vec![Symbol::Colon]).is_none() {
@@ -106,13 +120,21 @@ impl Parser {
 
         // macro definition
         if !self.accept(&vec![Symbol::MacroEQU, Symbol::MacroSET]).is_none() {
-            self.next_symbol();
+            let macro_value = String::from(self.lexer.ident.clone());
 
             if self.stage == Stage::Preprocessor {
                 // add preprocessor value to list
+                self.macro_list.insert(macro_name.clone(), MacroElement::new(
+                        macro_name, macro_value, self.lexer.position));
             }
+
+            self.next_symbol();
+
         } else { // implicit file offset
             if self.stage == Stage::Label {
+                //let macro_value = PC;
+                //self.label_list.insert(macro_name.clone(), MacroElement::new(
+                //        macro_name, macro_value, self.lexer.position));
                 // add label declaration
             }
         }
