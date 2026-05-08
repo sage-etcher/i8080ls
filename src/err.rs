@@ -23,6 +23,7 @@ pub enum InternalErrorCode {
     EndOffsetMismatch,
     OffsetNotSet,
     UnknownMacro,
+    DuplicateIdent,
 }
 
 #[derive(Debug)]
@@ -61,6 +62,7 @@ impl InternalError {
             "end offset differs from previous org statement",
             "cannot updaate offset, no previous org statement",
             "unknown macro/label",
+            "duplicate ident",
         ];
 
         if self.errcode as usize >= errstr_list.len() {
