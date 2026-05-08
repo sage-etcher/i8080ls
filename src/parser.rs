@@ -14,12 +14,12 @@ enum Stage {
     Opcode,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MacroElement {
     key: String,
     value: String,
-    declaration: Range,
-    references: Vec<Range>,
+    pub declaration: Range,
+    pub references: Vec<Range>,
 }
 
 #[derive(Debug)]

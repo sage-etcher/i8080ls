@@ -41,8 +41,26 @@ impl Backend {
 
         // loop over macro_list, throw warnings for any label that does not
         // have any references
-        for i in 0..ctx.parser.macro_list.iter().count() {
+        let mut iter = ctx.parser.macro_list.iter();
+        loop {
             // loop 
+            let elem = iter.next();
+            if elem.is_none() {
+                break;
+            }
+
+            let elem_unwrap = elem.unwrap();
+            let value = elem_unwrap.value();
+            if value.references.len() > 0 {
+                continue;
+            }
+
+            full_diagnostics.push(Diagnostic {
+                range: value.declaration,
+                severity: Some(DiagnosticSeverity::WARNING),
+                message: String::from("unused macro"),
+                ..Default::default()
+            });
         }
 
         return full_diagnostics;
