@@ -17,6 +17,7 @@ pub struct MacroElement {
 #[derive(Debug)]
 pub struct Parser {
     lexer: Lexer,
+    lexer_stack: Vec<Lexer>,
     symbol: Vec<Symbol>,
 
     origin: Option<u32>,
@@ -45,7 +46,8 @@ impl MacroElement {
 impl Parser {
     pub fn new(file_content: &str) -> Self {
         Self {
-            lexer:  Lexer::new(file_content),
+            lexer: Lexer::new(file_content),
+            lexer_stack: Vec::default(),
             symbol: Vec::default(),
 
             origin: None,
@@ -57,7 +59,15 @@ impl Parser {
     }
 
     fn add_error(&mut self, errcode: InternalErrorCode) {
-        self.error_list.push(InternalError::new(self.lexer.position, errcode));
+        let pos: Range;
+
+        if self.lexer_stack.len() == 0 {
+            pos = self.lexer.position;
+        } else {
+            pos = self.lexer_stack[0].position;
+        }
+
+        self.error_list.push(InternalError::new(pos, errcode));
     }
 
     fn accept_raw(haystack: &Vec<Symbol>, needles: &Vec<Symbol>) -> Option<Vec<Symbol>> {
@@ -132,47 +142,67 @@ impl Parser {
         // }}}
     }
 
-    fn eval_macro(&mut self) -> bool {
+    fn contains_macro(&mut self) -> bool {
         // {{{
-        let mut is_reference = true;
+        let key = &self.lexer.ident;
+        let macro_get = self.macro_list.get(key);
 
-        let mut iter = self.macro_list.iter();
-        loop {
-            let elem = iter.next();
-            if elem.is_none() {
-                break;
-            }
-
-            let elem_unwrap = elem.unwrap();
-
-            // filter out all non-matching idents
-            if elem_unwrap.key != self.lexer.ident {
-                continue;
-            }
-
-            // dont replace macro declarations
-            if elem_unwrap.declaration == Some(self.lexer.position) {
-                is_reference = false;
-                break;
-            }
-
-            // dont expand undefined macros
-            if elem_unwrap.value == None {
-                break;
-            }
-
-            // evaluate macro
-            let mut lexer = Lexer::new(&elem_unwrap.value.clone().unwrap());
-            lexer.read_ch();
-            let symbol = lexer.get_symbol();
-
-            self.symbol = symbol;
-
-            //dbg!(&elem_unwrap.value());
-            //dbg!(&self.symbol);
-            break;
+        if macro_get.is_none() {
+            return false;
         }
-        return is_reference;
+
+        let macro_unwrap = macro_get.unwrap();
+
+        if macro_unwrap.declaration == Some(self.lexer.position) {
+            return false;
+        }
+
+        return macro_unwrap.value != None;
+        // }}}
+    }
+
+    fn macro_is_declaration(&mut self) -> bool {
+        // {{{
+        let key = &self.lexer.ident;
+        let macro_get = self.macro_list.get(key);
+
+        if macro_get.is_none() {
+            return false;
+        }
+
+        let macro_unwrap = macro_get.unwrap();
+        return macro_unwrap.declaration == Some(self.lexer.position);
+        // }}}
+    }
+
+    fn eval_macro(&mut self) {
+        // {{{
+        if self.contains_macro() {
+            let key = &self.lexer.ident;
+            let file_content = self.macro_list.get_mut(key).unwrap().value.clone();
+
+            self.lexer_push(file_content.unwrap());
+        }
+        // }}}
+    }
+
+    fn lexer_push(&mut self, file_content: String) {
+        // {{{
+        self.lexer_stack.push(Lexer::from(&self.lexer));
+        self.lexer = Lexer::new(&file_content);
+        self.lexer.read_ch();
+        self.next_symbol();
+        // }}}
+    }
+
+    fn lexer_pop(&mut self) {
+        // {{{
+        if self.lexer_stack.len() == 0 {
+            return;
+        }
+
+        self.lexer = Lexer::from(&self.lexer_stack.pop().unwrap());
+        self.next_symbol();
         // }}}
     }
 
@@ -180,16 +210,24 @@ impl Parser {
         // {{{
         self.symbol = self.lexer.get_symbol();
 
+        if !self.accept(&vec![Symbol::EOF]).is_none() {
+            self.lexer_pop();
+        }
+
         // return if not IDENT
         if self.accept(&vec![Symbol::Ident]).is_none() {
+            dbg!(&self.symbol);
             return;
         }
 
         // evaluate macro, and add reference if applicable
         // returns true when the evaluation is a macro
-        if self.eval_macro() {
+        if !self.macro_is_declaration() {
             self.add_reference();
         }
+        self.eval_macro();
+
+        dbg!(&self.symbol);
         // }}}
     }
 
@@ -448,7 +486,7 @@ impl Parser {
 
         // add new macro from offset
         let macro_value = format!("0{:x}h", self.offset.unwrap());
-        self.next_symbol();
+        //self.next_symbol();
 
         // add macro to list
         self.add_declaration(macro_name, macro_value, macro_position);
@@ -571,8 +609,8 @@ impl Parser {
             Symbol::OpcodeXTHL | Symbol::OpcodeXCHG |
             Symbol::OpcodeDI   | Symbol::OpcodeEI   |
             Symbol::OpcodeSPHL | Symbol::OpcodePCHL => {
-                self.next_symbol();
                 self.inc_offset(1);
+                self.next_symbol();
             }
             Symbol::OpcodeMVI  |
             Symbol::OpcodeOUT  | Symbol::OpcodeIN   |
@@ -580,8 +618,8 @@ impl Parser {
             Symbol::OpcodeSUI  | Symbol::OpcodeSBI  |
             Symbol::OpcodeANI  | Symbol::OpcodeXRI  |
             Symbol::OpcodeORI  | Symbol::OpcodeCPI => {
-                self.next_symbol();
                 self.inc_offset(2);
+                self.next_symbol();
             }
             Symbol::OpcodeLXI  |
             Symbol::OpcodeSHLD | Symbol::OpcodeLHLD |
@@ -592,8 +630,8 @@ impl Parser {
             Symbol::OpcodeCALL | Symbol::OpcodeCNZ  | Symbol::OpcodeCNC  |
             Symbol::OpcodeCPO  | Symbol::OpcodeCP   | Symbol::OpcodeCZ   |
             Symbol::OpcodeCC   | Symbol::OpcodeCPE  | Symbol::OpcodeCM => {
-                self.next_symbol();
                 self.inc_offset(3);
+                self.next_symbol();
             }
             _ => {
                 return;

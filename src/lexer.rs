@@ -49,6 +49,22 @@ impl Lexer {
         }
     }
 
+    pub fn from(src: &Lexer) -> Lexer {
+        return Lexer {
+            file_content: String::from(src.file_content.clone()),
+            index:        src.index,
+            ch:           src.ch,
+            ch_lower:     src.ch_lower,
+
+            line:         src.line,
+            character:    src.character,
+            position:     src.position,
+            kw_syms:      Symbol::get_keywords(),
+            number:       src.number,
+            ident:        String::from(src.ident.clone()),
+        };
+    }
+
     pub fn reset(&mut self) {
         self.index     = 0;
         self.line      = 0;
