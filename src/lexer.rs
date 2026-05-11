@@ -49,6 +49,12 @@ impl Lexer {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.index     = 0;
+        self.line      = 0;
+        self.character = 0;
+    }
+
     pub fn read_ch(&mut self) -> Option<char> {
         if self.index >= self.file_content.len()
         {

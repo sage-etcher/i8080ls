@@ -3,7 +3,7 @@ use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer};
 
-use crate::data_types::FxDashMap;
+use crate::data_types::{FxDashMap, FxDashSet};
 use crate::parser::FileContext;
 
 #[derive(Debug)]
@@ -41,26 +41,43 @@ impl Backend {
 
         // loop over macro_list, throw warnings for any label that does not
         // have any references
-        let mut iter = ctx.parser.macro_list.iter();
+        let mut macro_iter = ctx.parser.macro_list.iter();
         loop {
             // loop 
-            let elem = iter.next();
-            if elem.is_none() {
+            let macro_elem = macro_iter.next();
+            if macro_elem.is_none() {
                 break;
             }
 
-            let elem_unwrap = elem.unwrap();
-            let value = elem_unwrap.value();
-            if value.references.len() > 0 {
+            let macro_elem_unwrap = macro_elem.unwrap();
+            let macro_value = macro_elem_unwrap.value();
+
+            if macro_value.declaration.is_none() {
+                let mut ref_iter = macro_value.references.iter();
+                loop {
+                    let ref_elem = ref_iter.next();
+                    if ref_elem.is_none() {
+                        break;
+                    }
+
+                    full_diagnostics.push(Diagnostic {
+                        range: *ref_elem.unwrap().key(),
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        message: String::from("undefined macro"),
+                        ..Default::default()
+                    });
+                }
                 continue;
             }
 
-            full_diagnostics.push(Diagnostic {
-                range: value.declaration,
-                severity: Some(DiagnosticSeverity::WARNING),
-                message: String::from("unused macro"),
-                ..Default::default()
-            });
+            if macro_value.references.len() == 0 {
+                full_diagnostics.push(Diagnostic {
+                    range: macro_value.declaration.unwrap(),
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: String::from("unused macro"),
+                    ..Default::default()
+                });
+            }
         }
 
         return full_diagnostics;

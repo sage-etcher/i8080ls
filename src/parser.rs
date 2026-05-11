@@ -1,7 +1,7 @@
 
 use tower_lsp_server::ls_types::Range;
 
-use crate::data_types::FxDashMap;
+use crate::data_types::{FxDashMap, FxDashSet};
 use crate::symbol::Symbol;
 use crate::lexer::Lexer;
 use crate::err::{InternalErrorCode, InternalError};
@@ -9,9 +9,9 @@ use crate::err::{InternalErrorCode, InternalError};
 #[derive(Debug, Clone)]
 pub struct MacroElement {
     key: String,
-    value: String,
-    pub declaration: Range,
-    pub references: Vec<Range>,
+    value: Option<String>,
+    pub declaration: Option<Range>,
+    pub references: FxDashSet<Range>,
 }
 
 #[derive(Debug)]
@@ -32,12 +32,12 @@ pub struct FileContext {
 }
 
 impl MacroElement {
-    pub fn new(key: String, value: String, declaration: Range) -> Self {
+    pub fn new(key: String, value: Option<String>, declaration: Option<Range>) -> Self {
         Self {
             key, 
             value,
             declaration,
-            references: Vec::default(),
+            references: FxDashSet::default(),
         }
     }
 }
@@ -83,31 +83,6 @@ impl Parser {
         return Parser::accept_raw(&self.symbol, needles);
     }
 
-    fn eval_macro(&mut self, macro_name: String) -> Option<Vec<Symbol>> {
-        let macro_lookup = self.macro_list.get_mut(&macro_name);
-        if macro_lookup.is_none() {
-            return None;
-        }
-
-        let mut macro_value = macro_lookup.unwrap();
-        macro_value.references.push(self.lexer.position);
-
-        let mut sub_lexer = Lexer::new(&macro_value.value().value);
-
-        sub_lexer.read_ch();
-        let macro_syms = sub_lexer.get_symbol();
-
-        match macro_syms.len() {
-            0 => return None,
-            _ => {
-                self.symbol       = macro_syms.clone();
-                self.lexer.number = sub_lexer.number;
-                self.lexer.ident  = sub_lexer.ident;
-                return Some(macro_syms);
-            },
-        }
-    }
-
     fn expect(&mut self, needles: &Vec<Symbol>, errcode: InternalErrorCode) -> bool {
         // {{{
         let matches = self.accept(&needles);
@@ -119,19 +94,114 @@ impl Parser {
         // }}}
     }
 
-    fn next_symbol(&mut self) {
-        self.symbol = self.lexer.get_symbol();
-        //dbg!(&self.symbol);
+    // MacroElement control
+    fn add_reference(&mut self) {
+        // {{{
+        let key = self.lexer.ident.clone();
+
+        let ref_pos = self.lexer.position;
+        if !self.macro_list.contains_key(&key) {
+            // make new element
+            self.macro_list.insert(key.clone(), MacroElement::new(
+                    key.clone(), None, None));
+        }
+
+        self.macro_list.get_mut(&key).unwrap().references.insert(ref_pos);
+        // }}}
     }
 
+    fn add_declaration(&mut self, key: String, value: String, pos: Range) {
+        // {{{
+        // add new macro to list
+        if !self.macro_list.contains_key(&key) {
+            self.macro_list.insert(key.clone(), MacroElement::new(
+                    key, Some(value), Some(pos)));
+            return;
+        }
+
+        // disallow duplicate declaration
+        if !self.macro_list.get_mut(&key).unwrap().declaration.is_none() {
+            self.add_error(InternalErrorCode::DuplicateIdent);
+            return;
+        }
+
+        // add macro declaration + definition
+        self.macro_list.get_mut(&key).unwrap().value       = Some(value);
+        self.macro_list.get_mut(&key).unwrap().declaration = Some(pos);
+        self.macro_list.get_mut(&key).unwrap().references.remove(&pos);
+        // }}}
+    }
+
+    fn eval_macro(&mut self) -> bool {
+        // {{{
+        let mut is_reference = true;
+
+        let mut iter = self.macro_list.iter();
+        loop {
+            let elem = iter.next();
+            if elem.is_none() {
+                break;
+            }
+
+            let elem_unwrap = elem.unwrap();
+
+            // filter out all non-matching idents
+            if elem_unwrap.key != self.lexer.ident {
+                continue;
+            }
+
+            // dont replace macro declarations
+            if elem_unwrap.declaration == Some(self.lexer.position) {
+                is_reference = false;
+                break;
+            }
+
+            // dont expand undefined macros
+            if elem_unwrap.value == None {
+                break;
+            }
+
+            // evaluate macro
+            let mut lexer = Lexer::new(&elem_unwrap.value.clone().unwrap());
+            lexer.read_ch();
+            let symbol = lexer.get_symbol();
+
+            self.symbol = symbol;
+
+            //dbg!(&elem_unwrap.value());
+            //dbg!(&self.symbol);
+            break;
+        }
+        return is_reference;
+        // }}}
+    }
+
+    fn next_symbol(&mut self) {
+        // {{{
+        self.symbol = self.lexer.get_symbol();
+
+        // return if not IDENT
+        if self.accept(&vec![Symbol::Ident]).is_none() {
+            return;
+        }
+
+        // evaluate macro, and add reference if applicable
+        // returns true when the evaluation is a macro
+        if self.eval_macro() {
+            self.add_reference();
+        }
+        // }}}
+    }
 
     fn inc_offset(&mut self, n: u32) {
+        // {{{
         if self.origin.is_none() {
             self.add_error(InternalErrorCode::OffsetNotSet);
             return;
         }
 
         self.offset = Some(self.offset.unwrap() + n);
+        // }}}
     }
 
     fn stmt_opcode(&mut self) {
@@ -233,7 +303,6 @@ impl Parser {
                 if self.accept(&vec![Symbol::NumberByte]).is_none()
                    || self.lexer.number > 7
                 {
-                    //dbg!(&self.lexer.number);
                     self.next_symbol();
                     self.add_error(InternalErrorCode::SyntaxIntermediateRST);
                     return;
@@ -303,6 +372,7 @@ impl Parser {
         // }}}
     }
 
+    // Parser function
     fn stmt_macro_dec(&mut self) {
         // {{{
         // get EQU definitions
@@ -328,20 +398,11 @@ impl Parser {
         let macro_value = self.lexer.ident.clone();
         self.next_symbol();
 
-        // disallow duplicate definitions
-        if !self.macro_list.get(&macro_name.clone()).is_none() {
-            self.lexer.position = macro_position;
-            self.add_error(InternalErrorCode::DuplicateIdent);
-            return;
-        }
-
-        // add macro to list
-        self.macro_list.insert(macro_name.clone(), MacroElement::new(
-                macro_name, macro_value, macro_position));
+        self.add_declaration(macro_name, macro_value, macro_position);
         // }}}
     }
 
-    fn parse_stage0(&mut self) {
+    fn parse_get_macro_definitions(&mut self) {
         // get static preprocessor values, EQU, SET
         self.next_symbol();
         while self.accept(&vec![Symbol::EOF]).is_none() {
@@ -354,7 +415,6 @@ impl Parser {
             self.expect(&vec![Symbol::Newline], InternalErrorCode::SyntaxNewline);
         }
     }
-
 
     fn stmt_label_dec(&mut self) {
         // {{{
@@ -390,16 +450,8 @@ impl Parser {
         let macro_value = format!("0{:x}h", self.offset.unwrap());
         self.next_symbol();
 
-        // disallow duplicate definitions
-        if !self.macro_list.get(&macro_name.clone()).is_none() {
-            self.lexer.position = macro_position;
-            self.add_error(InternalErrorCode::DuplicateIdent);
-            return;
-        }
-
         // add macro to list
-        self.macro_list.insert(macro_name.clone(), MacroElement::new(
-                macro_name, macro_value, macro_position));
+        self.add_declaration(macro_name, macro_value, macro_position);
         // }}}
     }
 
@@ -550,7 +602,7 @@ impl Parser {
         // }}}
     }
 
-    fn parse_stage1(&mut self) {
+    fn parse_get_label_definitions(&mut self) {
         // get label declarations
         self.next_symbol();
         while self.accept(&vec![Symbol::EOF]).is_none() {
@@ -566,6 +618,7 @@ impl Parser {
     }
 
     fn stmt_skip_declarations(&mut self) {
+        // {{{
         if self.accept(&vec![Symbol::Ident]).is_none() {
             return;
         }
@@ -579,24 +632,11 @@ impl Parser {
         if !self.accept(&vec![Symbol::MacroEQU, Symbol::MacroSET]).is_none() {
             self.next_symbol();
         }
+        // }}}
     }
 
-    fn add_reference(&mut self) {
-        let macro_name = self.lexer.ident.clone();
-        let macro_get  = self.macro_list.get(&macro_name);
-
-        if macro_get.is_none() {
-            self.add_error(InternalErrorCode::UnknownMacro);
-            return;
-        }
-
-        let macro_pair  = macro_get.unwrap();
-        let macro_value = macro_pair.value();
-        macro_value.references.push(self.lexer.position);
-    }
-
-    fn parse_stage2(&mut self) {
-        // get label references
+    fn parse_get_references(&mut self) {
+        // get label/macro references
         self.next_symbol();
         while self.accept(&vec![Symbol::EOF]).is_none() {
             self.stmt_skip_declarations();
@@ -612,11 +652,27 @@ impl Parser {
         }
     }
 
-    fn parse_stage3(&mut self) {
+    fn stmt_skip_macros(&mut self) {
+        // only act on macros
+        if self.accept(&vec!(Symbol::MacroDB,  Symbol::MacroDW,  
+                             Symbol::MacroDS,  Symbol::MacroORG, 
+                             Symbol::MacroEND)).is_none() {
+            return;
+        }
+
+        self.next_symbol();
+        while self.accept(&vec!(Symbol::Newline)).is_none() {
+            self.next_symbol();
+        }
+
+    }
+
+    fn parse_validate_opcodes(&mut self) {
         // validate structure
         self.next_symbol();
         while self.accept(&vec![Symbol::EOF]).is_none() {
             self.stmt_skip_declarations();
+            self.stmt_skip_macros();
             self.stmt_opcode();
 
             if !self.accept(&vec![Symbol::Comment]).is_none() {
@@ -630,28 +686,21 @@ impl Parser {
     pub fn parse(&mut self) {
         // collect fixed preproc values
         self.lexer.read_ch();
-        self.parse_stage0();
-
-        // expand preproc values
+        self.parse_get_macro_definitions();
 
         // collect labels
-        self.lexer = Lexer::new(&self.lexer.file_content);
+        self.lexer.reset();
         self.lexer.read_ch();
-        self.parse_stage1();
+        self.parse_get_label_definitions();
 
-        self.lexer = Lexer::new(&self.lexer.file_content);
+        // validate opcodes
+        self.lexer.reset();
         self.lexer.read_ch();
-        self.parse_stage2();
+        self.parse_validate_opcodes();
 
         dbg!(&self);
         return;
 
-        // expand all labels
-
-        // validate opcodes
-        self.lexer = Lexer::new(&self.lexer.file_content);
-        self.lexer.read_ch();
-        self.parse_stage3();
     }
 }
 
