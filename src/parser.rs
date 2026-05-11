@@ -16,7 +16,7 @@ pub struct MacroElement {
 
 #[derive(Debug)]
 pub struct Parser {
-    lexer: Lexer,
+    pub lexer: Lexer,
     lexer_stack: Vec<Lexer>,
     symbol: Vec<Symbol>,
 

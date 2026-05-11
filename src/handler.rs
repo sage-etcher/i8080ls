@@ -155,8 +155,53 @@ impl LanguageServer for Backend {
         self.parse_file(uri, &change.text).await;
     }
 
-    async fn hover(&self, _params: HoverParams) -> Result<Option<Hover>> {
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         dbg!("hover");
+        let position = params.text_document_position_params;
+        let uri = position.text_document.uri;
+        let ctx: &FileContext = &self.context.get(&uri).unwrap();
+
+
+        let mut text = ctx.parser.lexer.file_content.lines();
+        let line_text: Vec<char> = text.nth(position.position.line as usize)
+                                       .unwrap()
+                                       .chars()
+                                       .collect();
+
+        let mut i = position.position.character as usize;
+
+        // go to start of symbol
+        while i > 0 {
+            let ch = line_text[i-1];
+
+            if !(ch.is_alphanumeric() || ch == '$' || ch == '_') {
+                break;
+            }
+
+            i -= 1;
+            dbg!(&i);
+            dbg!(&ch);
+        }
+
+        // get ident
+        let mut ident_vec: Vec<char> = Vec::default();
+        while i < line_text.len() {
+            let ch = line_text[i];
+            if ch == '$' {
+                i += 1;
+                continue;
+            }
+
+            if !(ch.is_alphanumeric()|| ch == '_') {
+                break;
+            }
+
+            ident_vec.push(ch);
+            i += 1;
+        }
+
+        dbg!(&ident_vec);
+
 
         let hover_value: String = String::from("hover test");
 
