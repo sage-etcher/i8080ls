@@ -1,4 +1,5 @@
 
+use std::collections::HashMap;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer};
@@ -82,8 +83,8 @@ impl Backend {
 
         return full_diagnostics;
     }
-
-    fn get_ident(&self, uri: Uri, position: Position) -> String {
+    
+    fn get_ident(&self, uri: Uri, position: Position) -> (String, Range) {
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
 
         let mut text = ctx.parser.lexer.file_content.lines();
@@ -104,6 +105,10 @@ impl Backend {
 
             i -= 1;
         }
+        let start_pos = Position {
+            line:      position.line,
+            character: i as u32,
+        };
 
         // get ident
         let mut ident_vec: Vec<char> = Vec::default();
@@ -121,11 +126,20 @@ impl Backend {
             ident_vec.push(ch);
             i += 1;
         }
+        let end_pos = Position {
+            line:      position.line,
+            character: i as u32,
+        };
+
+        let range = Range {
+            start: start_pos,
+            end:   end_pos,
+        };
 
         let ident: String = ident_vec.into_iter().collect();
         let ident_lower: String = ident.to_lowercase().to_string();
 
-        return ident_lower;
+        return (ident_lower, range);
     }
 
     async fn parse_file(&self, uri: Uri, text: &str) {
@@ -155,9 +169,6 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
-                //selection_range_provider: Some(
-                //    SelectionRangeProviderCapability::Simple(true)
-                //),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 // completion_provider: Some(CompletionOptions {
                 //
@@ -165,7 +176,12 @@ impl LanguageServer for Backend {
                 definition_provider:         Some(OneOf::Left(true)),
                 references_provider:         Some(OneOf::Left(true)),
                 //document_highlight_provider: Some(OneOf::Left(true)),
-                //rename_provider:             Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: WorkDoneProgressOptions {
+                        work_done_progress: Some(false),
+                    },
+                })),
                 ..Default::default()
             },
             ..Default::default()
@@ -217,7 +233,7 @@ impl LanguageServer for Backend {
         let position = params.text_document_position_params.position;
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
 
-        let ident = self.get_ident(uri.clone(), position);
+        let (ident, _) = self.get_ident(uri.clone(), position);
         let macro_match = ctx.parser.macro_list.get(&ident);
 
         if macro_match.is_none() {
@@ -242,7 +258,7 @@ impl LanguageServer for Backend {
         let position = params.text_document_position.position;
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
 
-        let ident = self.get_ident(uri.clone(), position);
+        let (ident, _) = self.get_ident(uri.clone(), position);
         let macro_match = ctx.parser.macro_list.get(&ident);
 
         if macro_match.is_none() {
@@ -279,11 +295,11 @@ impl LanguageServer for Backend {
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         dbg!("hover");
-        let position = params.text_document_position_params;
-        let uri = position.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let uri: Uri = params.text_document_position_params.text_document.uri;
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
 
-        let ident = self.get_ident(uri, position.position);
+        let (ident, _) = self.get_ident(uri, position);
         let macro_match = ctx.parser.macro_list.get(&ident);
 
         if macro_match.is_none() {
@@ -306,15 +322,64 @@ impl LanguageServer for Backend {
         }))
     }
 
-    async fn selection_range(&self, _params: SelectionRangeParams) ->
-                Result<Option<Vec<SelectionRange>>> {
-        dbg!("selection_range");
-        Ok(None)
+    async fn prepare_rename(&self, params: TextDocumentPositionParams) -> 
+                Result<Option<PrepareRenameResponse>> {
+        dbg!("prepare_rename");
+
+        let position = params.position;
+        let uri: Uri = params.text_document.uri;
+        let ctx: &FileContext = &self.context.get(&uri).unwrap();
+
+        let (ident, range) = self.get_ident(uri, position);
+        if !ctx.parser.macro_list.contains_key(&ident) {
+            return Ok(None);
+        }
+
+        Ok(Some(PrepareRenameResponse::Range(range)))
     }
 
-    async fn rename(&self, _params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        dbg!("rename");
-        Ok(None)
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let position = params.text_document_position.position;
+        let uri: Uri = params.text_document_position.text_document.uri;
+        let ctx: &FileContext = &self.context.get(&uri).unwrap();
+
+        let (ident, _) = self.get_ident(uri.clone(), position);
+        let macro_get = ctx.parser.macro_list.get(&ident);
+        if macro_get.is_none() {
+            return Ok(None);
+        }
+
+        let macro_match = macro_get.unwrap();
+
+        let mut change_list: Vec<TextEdit> = Vec::new();
+        if !macro_match.declaration.is_none() {
+            change_list.push(TextEdit {
+                range:    macro_match.declaration.unwrap(),
+                new_text: params.new_name.clone(),
+            });
+        }
+
+        let mut ref_iter = macro_match.references.iter();
+        loop {
+            let ref_elem = ref_iter.next();
+            if ref_elem.is_none() {
+                break;
+            }
+
+            change_list.push(TextEdit {
+                range:    *ref_elem.unwrap(),
+                new_text: params.new_name.clone(),
+            });
+        }
+
+        let mut change_map: HashMap<Uri, Vec<TextEdit>> = HashMap::new();
+        change_map.insert(uri.clone(), change_list);
+
+        Ok(Some(WorkspaceEdit {
+            changes: Some(change_map),
+            document_changes: None,
+            change_annotations: None,
+        }))
     }
 
 }
