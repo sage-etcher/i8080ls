@@ -366,8 +366,11 @@ impl LanguageServer for Backend {
                 break;
             }
 
+            let range = *ref_elem.unwrap();
+            dbg!(&range);
+
             change_list.push(TextEdit {
-                range:    *ref_elem.unwrap(),
+                range,
                 new_text: params.new_name.clone(),
             });
         }
@@ -381,5 +384,4 @@ impl LanguageServer for Backend {
             change_annotations: None,
         }))
     }
-
 }

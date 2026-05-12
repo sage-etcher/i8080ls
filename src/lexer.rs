@@ -13,6 +13,7 @@ pub struct Lexer {
     pub ch_lower: Option<char>,
 
     line: u32,
+    line_len: u32,
     character: u32,
     pub position: Range,
 
@@ -31,6 +32,7 @@ impl Lexer {
             ch_lower: None,
 
             line:      0,
+            line_len:  0,
             character: 0,
             position: Range {
                 start: Position {
@@ -52,6 +54,7 @@ impl Lexer {
     pub fn from(src: &Lexer) -> Lexer {
         return Lexer {
             file_content: String::from(src.file_content.clone()),
+            line_len:     src.line_len,
             index:        src.index,
             ch:           src.ch,
             ch_lower:     src.ch_lower,
@@ -83,6 +86,7 @@ impl Lexer {
         self.index += 1;
 
         if ch == '\n' {
+            self.line_len = self.character;
             self.line += 1;
             self.character = 0;
         } else {
@@ -110,8 +114,12 @@ impl Lexer {
 
         if self.position.end.character > 0 {
             self.position.end.character -= 1;
+        } else {
+            if self.position.end.line > 0 {
+                self.position.end.line -= 1;
+                self.position.end.character = self.line_len;
+            }
         }
-
     }
 
     fn parse_number(&mut self) -> Vec<Symbol> {
