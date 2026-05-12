@@ -2,9 +2,16 @@
 use tower_lsp_server::ls_types::Range;
 
 use crate::data_types::{FxDashMap, FxDashSet};
-use crate::symbol::Symbol;
+use crate::symbol::{Symbol, SymbolType};
 use crate::lexer::Lexer;
 use crate::err::{InternalErrorCode, InternalError};
+
+
+#[derive(Debug, Clone)]
+pub struct HiElement {
+    pub element_type: SymbolType,
+    pub range: Range,
+}
 
 #[derive(Debug, Clone)]
 pub struct MacroElement {
@@ -24,6 +31,8 @@ pub struct Parser {
     origin: Option<u32>,
     offset: Option<u32>,
 
+    lock_semantic_list: bool,
+    pub semantic_list: Vec<HiElement>,
     pub error_list: Vec<InternalError>,
     pub macro_list: FxDashMap<String, MacroElement>,
 
@@ -57,6 +66,8 @@ impl Parser {
             origin: None,
             offset: None,
 
+            lock_semantic_list: false,
+            semantic_list: Vec::default(),
             error_list: Vec::default(),
             macro_list: FxDashMap::default(),
 
@@ -218,9 +229,41 @@ impl Parser {
         // }}}
     }
 
+    fn highlight_symbol(&mut self) {
+        if self.lock_semantic_list {
+            return;
+        }
+
+        if self.symbol.len() == 0 {
+            return;
+        }
+
+        let symbol = self.symbol[0];
+        let symbol_category = (symbol as isize / 0x0100) as usize;
+        let symbol_type_vec = vec![
+            SymbolType::OPCODE,  SymbolType::MACRO,  SymbolType::REGISTER,
+            SymbolType::LABEL,   SymbolType::NUMBER, SymbolType::STRING,
+            SymbolType::COMMENT, SymbolType::SYMBOL, SymbolType::SPACERS,
+            SymbolType::NUMTYPE, SymbolType::NORMAL,
+        ];
+
+        assert!(symbol_category < symbol_type_vec.len());
+        let symbol_type = symbol_type_vec[symbol_category];
+
+        if symbol_type == SymbolType::NORMAL {
+            return;
+        }
+
+        self.semantic_list.push(HiElement {
+            range: self.lexer.position.clone(),
+            element_type: symbol_type,
+        });
+    }
+
     fn next_symbol(&mut self) {
         // {{{
         self.symbol = self.lexer.get_symbol();
+        self.highlight_symbol();
 
         if !self.accept(&vec![Symbol::EOF]).is_none() {
             self.lexer_pop();
@@ -695,23 +738,6 @@ impl Parser {
         // }}}
     }
 
-    fn parse_get_references(&mut self) {
-        // get label/macro references
-        self.next_symbol();
-        while self.accept(&vec![Symbol::EOF]).is_none() {
-            self.stmt_skip_declarations();
-
-            // ignore remaining line
-            while self.accept(&vec![Symbol::Newline]).is_none() {
-                if !self.accept(&vec![Symbol::Ident]).is_none() {
-                    self.add_reference();
-                }
-                self.next_symbol();
-            }
-            self.expect(&vec![Symbol::Newline], InternalErrorCode::SyntaxNewline);
-        }
-    }
-
     fn stmt_skip_macros(&mut self) {
         // only act on macros
         if self.accept(&vec!(Symbol::MacroDB,  Symbol::MacroDW,  
@@ -747,6 +773,7 @@ impl Parser {
         // collect fixed preproc values
         self.lexer.read_ch();
         self.parse_get_macro_definitions();
+        self.lock_semantic_list = true;
 
         // collect labels
         self.lexer.reset();

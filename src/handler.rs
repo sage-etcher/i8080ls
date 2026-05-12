@@ -4,7 +4,7 @@ use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer};
 
-use crate::data_types::{FxDashMap, FxDashSet};
+use crate::data_types::FxDashMap;
 use crate::parser::FileContext;
 
 #[derive(Debug)]
@@ -175,7 +175,7 @@ impl LanguageServer for Backend {
                 // }),
                 definition_provider:         Some(OneOf::Left(true)),
                 references_provider:         Some(OneOf::Left(true)),
-                //document_highlight_provider: Some(OneOf::Left(true)),
+                document_symbol_provider:    Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Right(RenameOptions {
                     prepare_provider: Some(true),
                     work_done_progress_options: WorkDoneProgressOptions {
@@ -287,12 +287,6 @@ impl LanguageServer for Backend {
         Ok(Some(references_vec))
     }
 
-    async fn document_highlight(&self, _params: DocumentHighlightParams) -> 
-                Result<Option<Vec<DocumentHighlight>>> {
-        dbg!("document_highlight");
-        Ok(None)
-    }
-
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         dbg!("hover");
         let position = params.text_document_position_params.position;
@@ -393,5 +387,17 @@ impl LanguageServer for Backend {
             document_changes: None,
             change_annotations: None,
         }))
+    }
+
+    async fn document_symbol(&self, params: DocumentSymbolParams) ->
+                Result<Option<DocumentSymbolResponse>> {
+        dbg!("document_symbol");
+
+        let uri: Uri = params.text_document.uri;
+        let ctx: &FileContext = &self.context.get(&uri).unwrap();
+
+        dbg!(&ctx.parser.semantic_list);
+
+        Ok(None)
     }
 }

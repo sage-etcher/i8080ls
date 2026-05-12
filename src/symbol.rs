@@ -2,9 +2,25 @@
 use crate::data_types::FxDashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SymbolType {
+    OPCODE,     // opcodes: mvi, mov, ana
+    MACRO,      // psuedo-ops: org, end, ds, db
+    REGISTER,   // registers: a, b, c, psw, sp
+    LABEL,      // labels
+    NUMBER,     // numbers
+    STRING,     // ascii string
+    COMMENT,    // comments
+    SYMBOL,     // symbols: , : !
+    SPACERS,    // spacers: $ and _
+    NUMTYPE,    // number suffix: h, d, o, q, b
+    NORMAL      // none
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Symbol {
-    Unknown,
-    MacroORG,
+    Unknown         = 0x0100 * SymbolType::NORMAL as isize,
+    EOF,
+    MacroORG        = 0x0100 * SymbolType::MACRO as isize,
     MacroEND,
     MacroEQU,
     MacroSET,
@@ -17,7 +33,7 @@ pub enum Symbol {
     MacroMult,
     MacroDiv,
     MacroMod,
-    RegA,
+    RegA            = 0x0100 * SymbolType::REGISTER as isize,
     RegB,
     RegC,
     RegD,
@@ -31,17 +47,16 @@ pub enum Symbol {
     RegPairBC,
     RegPairDE,
     RegPairHL,
-    NumberByte,
+    NumberByte      = 0x0100 * SymbolType::NUMBER  as isize,
     NumberWord,
     NumberOverflow,
-    StringASCII,
-    Comma,
+    StringASCII     = 0x0100 * SymbolType::STRING  as isize,
+    Comma           = 0x0100 * SymbolType::SYMBOL  as isize,
     Colon,
-    Ident,
     Newline,
-    Comment,
-    EOF,
-    OpcodeACI,
+    Ident           = 0x0100 * SymbolType::LABEL   as isize,
+    Comment         = 0x0100 * SymbolType::COMMENT as isize,
+    OpcodeACI       = 0x0100 * SymbolType::OPCODE  as isize,
     OpcodeADC,
     OpcodeADD,
     OpcodeADI,
