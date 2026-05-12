@@ -83,6 +83,51 @@ impl Backend {
         return full_diagnostics;
     }
 
+    fn get_ident(&self, uri: Uri, position: Position) -> String {
+        let ctx: &FileContext = &self.context.get(&uri).unwrap();
+
+        let mut text = ctx.parser.lexer.file_content.lines();
+        let line_text: Vec<char> = text.nth(position.line as usize)
+                                       .unwrap()
+                                       .chars()
+                                       .collect();
+
+        let mut i = position.character as usize;
+
+        // go to start of symbol
+        while i > 0 {
+            let ch = line_text[i-1];
+
+            if !(ch.is_alphanumeric() || ch == '$' || ch == '_') {
+                break;
+            }
+
+            i -= 1;
+        }
+
+        // get ident
+        let mut ident_vec: Vec<char> = Vec::default();
+        while i < line_text.len() {
+            let ch = line_text[i];
+            if ch == '$' || ch == '_' {
+                i += 1;
+                continue;
+            }
+
+            if !ch.is_alphanumeric() {
+                break;
+            }
+
+            ident_vec.push(ch);
+            i += 1;
+        }
+
+        let ident: String = ident_vec.into_iter().collect();
+        let ident_lower: String = ident.to_lowercase().to_string();
+
+        return ident_lower;
+    }
+
     async fn parse_file(&self, uri: Uri, text: &str) {
         // parse the file
         let mut ctx = FileContext::new(text);
@@ -110,7 +155,17 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
+                //selection_range_provider: Some(
+                //    SelectionRangeProviderCapability::Simple(true)
+                //),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                // completion_provider: Some(CompletionOptions {
+                //
+                // }),
+                definition_provider:         Some(OneOf::Left(true)),
+                references_provider:         Some(OneOf::Left(true)),
+                //document_highlight_provider: Some(OneOf::Left(true)),
+                //rename_provider:             Some(OneOf::Left(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -155,56 +210,93 @@ impl LanguageServer for Backend {
         self.parse_file(uri, &change.text).await;
     }
 
+    async fn goto_definition(&self, params: GotoDefinitionParams) -> 
+                Result<Option<GotoDefinitionResponse>> {
+        dbg!("goto_definition");
+        let uri: Uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let ctx: &FileContext = &self.context.get(&uri).unwrap();
+
+        let ident = self.get_ident(uri.clone(), position);
+        let macro_match = ctx.parser.macro_list.get(&ident);
+
+        if macro_match.is_none() {
+            return Ok(None);
+        }
+
+        let macro_unwrap = macro_match.unwrap();
+        if macro_unwrap.declaration.is_none() {
+            return Ok(None);
+        }
+
+        Ok(Some(GotoDefinitionResponse::Scalar(Location {
+            uri,
+            range: macro_unwrap.declaration.unwrap(),
+        })))
+    }
+
+    async fn references(&self, params: ReferenceParams) -> 
+                Result<Option<Vec<Location>>> {
+        dbg!("references");
+        let uri: Uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let ctx: &FileContext = &self.context.get(&uri).unwrap();
+
+        let ident = self.get_ident(uri.clone(), position);
+        let macro_match = ctx.parser.macro_list.get(&ident);
+
+        if macro_match.is_none() {
+            return Ok(None);
+        }
+
+        let macro_unwrap = macro_match.unwrap();
+        if macro_unwrap.references.len() == 0 {
+            return Ok(None);
+        }
+
+        let mut references_vec: Vec<Location> = Vec::new();
+        let mut ref_iter = macro_unwrap.references.iter();
+        loop {
+            let ref_elem = ref_iter.next();
+            if ref_elem.is_none() {
+                break;
+            }
+
+            references_vec.push(Location {
+                uri: uri.clone(),
+                range: *ref_elem.unwrap(),
+            });
+        }
+
+        Ok(Some(references_vec))
+    }
+
+    async fn document_highlight(&self, _params: DocumentHighlightParams) -> 
+                Result<Option<Vec<DocumentHighlight>>> {
+        dbg!("document_highlight");
+        Ok(None)
+    }
+
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         dbg!("hover");
         let position = params.text_document_position_params;
         let uri = position.text_document.uri;
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
 
+        let ident = self.get_ident(uri, position.position);
+        let macro_match = ctx.parser.macro_list.get(&ident);
 
-        let mut text = ctx.parser.lexer.file_content.lines();
-        let line_text: Vec<char> = text.nth(position.position.line as usize)
-                                       .unwrap()
-                                       .chars()
-                                       .collect();
-
-        let mut i = position.position.character as usize;
-
-        // go to start of symbol
-        while i > 0 {
-            let ch = line_text[i-1];
-
-            if !(ch.is_alphanumeric() || ch == '$' || ch == '_') {
-                break;
-            }
-
-            i -= 1;
-            dbg!(&i);
-            dbg!(&ch);
+        if macro_match.is_none() {
+            return Ok(None)
         }
 
-        // get ident
-        let mut ident_vec: Vec<char> = Vec::default();
-        while i < line_text.len() {
-            let ch = line_text[i];
-            if ch == '$' {
-                i += 1;
-                continue;
-            }
+        let macro_value: &Option<String> = &macro_match.unwrap().value;
 
-            if !(ch.is_alphanumeric()|| ch == '_') {
-                break;
-            }
-
-            ident_vec.push(ch);
-            i += 1;
+        if macro_value.is_none() {
+            return Ok(None)
         }
 
-        dbg!(&ident_vec);
-
-
-        let hover_value: String = String::from("hover test");
-
+        let hover_value = format!("# {}", macro_value.clone().unwrap());
         Ok(Some(Hover {
             range: None,
             contents: HoverContents::Markup(MarkupContent {
@@ -213,4 +305,16 @@ impl LanguageServer for Backend {
             }),
         }))
     }
+
+    async fn selection_range(&self, _params: SelectionRangeParams) ->
+                Result<Option<Vec<SelectionRange>>> {
+        dbg!("selection_range");
+        Ok(None)
+    }
+
+    async fn rename(&self, _params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        dbg!("rename");
+        Ok(None)
+    }
+
 }

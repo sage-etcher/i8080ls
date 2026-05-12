@@ -8,8 +8,8 @@ use crate::err::{InternalErrorCode, InternalError};
 
 #[derive(Debug, Clone)]
 pub struct MacroElement {
-    key: String,
-    value: Option<String>,
+    pub key: String,
+    pub value: Option<String>,
     pub declaration: Option<Range>,
     pub references: FxDashSet<Range>,
 }
@@ -216,7 +216,6 @@ impl Parser {
 
         // return if not IDENT
         if self.accept(&vec![Symbol::Ident]).is_none() {
-            dbg!(&self.symbol);
             return;
         }
 
@@ -226,8 +225,6 @@ impl Parser {
             self.add_reference();
         }
         self.eval_macro();
-
-        dbg!(&self.symbol);
         // }}}
     }
 
@@ -735,8 +732,6 @@ impl Parser {
         self.lexer.reset();
         self.lexer.read_ch();
         self.parse_validate_opcodes();
-
-        dbg!(&self);
         return;
 
     }
