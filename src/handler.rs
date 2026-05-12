@@ -306,13 +306,23 @@ impl LanguageServer for Backend {
             return Ok(None)
         }
 
-        let macro_value: &Option<String> = &macro_match.unwrap().value;
+        let macro_unwrap = macro_match.unwrap();
 
-        if macro_value.is_none() {
+        if macro_unwrap.value.is_none() {
             return Ok(None)
         }
 
-        let hover_value = format!("# {}", macro_value.clone().unwrap());
+        let mut hover_value = format!("# {}: {}", 
+                                      macro_unwrap.key.clone(),
+                                      macro_unwrap.value.clone().unwrap());
+
+        if macro_unwrap.description.is_some() {
+            if macro_unwrap.description.clone().unwrap().len() > 0 {
+                hover_value = format!("{}\n{}", hover_value, 
+                                      macro_unwrap.description.clone().unwrap());
+            }
+        }
+
         Ok(Some(Hover {
             range: None,
             contents: HoverContents::Markup(MarkupContent {

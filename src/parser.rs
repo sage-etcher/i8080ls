@@ -12,6 +12,7 @@ pub struct MacroElement {
     pub value: Option<String>,
     pub declaration: Option<Range>,
     pub references: FxDashSet<Range>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug)]
@@ -25,6 +26,8 @@ pub struct Parser {
 
     pub error_list: Vec<InternalError>,
     pub macro_list: FxDashMap<String, MacroElement>,
+
+    description: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -39,6 +42,7 @@ impl MacroElement {
             value,
             declaration,
             references: FxDashSet::default(),
+            description: None,
         }
     }
 }
@@ -55,6 +59,8 @@ impl Parser {
 
             error_list: Vec::default(),
             macro_list: FxDashMap::default(),
+
+            description: Vec::default(),
         }
     }
 
@@ -135,10 +141,16 @@ impl Parser {
             return;
         }
 
+
+
         // add macro declaration + definition
+        let description = self.description.join("\n");
+
         self.macro_list.get_mut(&key).unwrap().value       = Some(value);
         self.macro_list.get_mut(&key).unwrap().declaration = Some(pos);
+        self.macro_list.get_mut(&key).unwrap().description = Some(description);
         self.macro_list.get_mut(&key).unwrap().references.remove(&pos);
+
         // }}}
     }
 
@@ -441,11 +453,17 @@ impl Parser {
         // get static preprocessor values, EQU, SET
         self.next_symbol();
         while self.accept(&vec![Symbol::EOF]).is_none() {
-            self.stmt_macro_dec();
-
-            // ignore remaining lines
-            while self.accept(&vec![Symbol::Newline]).is_none() {
+            if !self.accept(&vec![Symbol::Comment]).is_none() {
+                self.description.push(self.lexer.ident.clone());
                 self.next_symbol();
+            } else {
+                self.stmt_macro_dec();
+                self.description = Vec::default();
+
+                // ignore remaining lines
+                while self.accept(&vec![Symbol::Newline]).is_none() {
+                    self.next_symbol();
+                }
             }
             self.expect(&vec![Symbol::Newline], InternalErrorCode::SyntaxNewline);
         }
@@ -486,7 +504,7 @@ impl Parser {
         //self.next_symbol();
 
         // add macro to list
-        self.add_declaration(macro_name, macro_value, macro_position);
+        self.add_declaration(macro_name.clone(), macro_value, macro_position);
         // }}}
     }
 
@@ -641,12 +659,19 @@ impl Parser {
         // get label declarations
         self.next_symbol();
         while self.accept(&vec![Symbol::EOF]).is_none() {
-            self.stmt_label_dec();
-            self.stmt_handle_offset();
-
-            // ignore remaining line
-            while self.accept(&vec![Symbol::Newline]).is_none() {
+            if !self.accept(&vec![Symbol::Comment]).is_none() {
+                self.description.push(self.lexer.ident.clone());
                 self.next_symbol();
+            } else {
+                self.stmt_label_dec();
+                self.description = Vec::default();
+
+                self.stmt_handle_offset();
+
+                // ignore remaining line
+                while self.accept(&vec![Symbol::Newline]).is_none() {
+                    self.next_symbol();
+                }
             }
             self.expect(&vec![Symbol::Newline], InternalErrorCode::SyntaxNewline);
         }
