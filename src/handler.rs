@@ -184,11 +184,6 @@ impl LanguageServer for Backend {
                         work_done_progress: Some(false),
                     },
                 })),
-
-                document_highlight_provider: Some(OneOf::Left(true)), // textDocument/documentHighlight
-                document_symbol_provider:    Some(OneOf::Left(true)), // textDocument/documentSymbol
-                workspace_symbol_provider:   Some(OneOf::Left(true)), // workspace/symbol
-                color_provider: Some(ColorProviderCapability::Simple(true)),
                 semantic_tokens_provider: Some(
                     SemanticTokensServerCapabilities::SemanticTokensOptions(
                         SemanticTokensOptions {
@@ -197,9 +192,16 @@ impl LanguageServer for Backend {
                             },
                             legend: SemanticTokensLegend {
                                 token_types: vec![
-                                    SemanticTokenType::NAMESPACE,
-                                    SemanticTokenType::TYPE,
-                                    SemanticTokenType::CLASS,
+                                    SemanticTokenType::KEYWORD,   // OPCODE
+                                    SemanticTokenType::MACRO,     // MACRO
+                                    SemanticTokenType::PARAMETER, // REGISTER
+                                    SemanticTokenType::VARIABLE,  // LABEL
+                                    SemanticTokenType::NUMBER,    // NUMBER
+                                    SemanticTokenType::STRING,    // STRING
+                                    SemanticTokenType::COMMENT,   // COMMENT
+                                    SemanticTokenType::OPERATOR,  // SYMBOL
+                                    SemanticTokenType::DECORATOR, // SPACERS
+                                    SemanticTokenType::TYPE,      // NUMTYPE
                                 ],
                                 token_modifiers: vec![],
                             },
@@ -439,30 +441,42 @@ impl LanguageServer for Backend {
     }
 
     // colors
-    async fn document_highlight(&self, _params: DocumentHighlightParams) ->
-                Result<Option<Vec<DocumentHighlight>>> {
-        dbg!("document_highlight");
-        Ok(None)
-    }
-    async fn document_symbol(&self, _params: DocumentSymbolParams) ->
-                Result<Option<DocumentSymbolResponse>> {
-        dbg!("document_symbol");
-        Ok(None)
-    }
-    async fn symbol(&self, _params: WorkspaceSymbolParams) ->
-                Result<Option<WorkspaceSymbolResponse>> {
-        dbg!("workspace_symbol/symbol");
-        Ok(None)
-    }
-    async fn document_color(&self, _params: DocumentColorParams) ->
-                Result<Vec<ColorInformation>> {
-        dbg!("document_color");
-        Ok(vec![])
-    }
-    async fn semantic_tokens_full(&self, _params: SemanticTokensParams) ->
+    async fn semantic_tokens_full(&self, params: SemanticTokensParams) ->
                 Result<Option<SemanticTokensResult>> {
         dbg!("semantic_tokesn_full");
-        Ok(None)
+        // OH THIS IS HARD TO TEST
+        // I'm semi-stuck on neovim v0.8... see below lol
+        //
+        // # neovim semantic token support by version
+        // | version | support |
+        // |:------- |:------- |
+        // | v0.8    | false   |
+        // | v0.11   | true    |
+
+        let uri: Uri = params.text_document.uri;
+        let ctx: &FileContext = &self.context.get(&uri).unwrap();
+
+        let mut semantic_token_data: Vec<SemanticToken> = Vec::default();
+
+        for elem in &ctx.parser.semantic_list {
+            semantic_token_data.push(SemanticToken {
+                delta_line:  elem.range.start.line,
+                delta_start: elem.range.start.character,
+                length: elem.range.end.character - elem.range.start.character,
+                token_type: elem.element_type as u32,
+                token_modifiers_bitset: 0,
+            });
+        }
+
+        match semantic_token_data.len() {
+            0 => return Ok(None),
+            _ => {
+                return Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+                    result_id: None,
+                    data: semantic_token_data,
+                })));
+            }
+        }
     }
     
     //async fn document_symbol(&self, params: DocumentSymbolParams) ->
