@@ -457,24 +457,21 @@ impl LanguageServer for Backend {
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
 
         let mut semantic_token_data: Vec<SemanticToken> = Vec::default();
-        let mut delta_line = 0;
-        let mut delta_start = 0;
+        let mut rel_position = Position {
+            line: 0,
+            character: 0,
+        };
 
         for elem in &ctx.parser.semantic_list {
-            if delta_line == elem.range.start.line {
-                delta_start += elem.range.start.character;
-            } else {
-                delta_line += elem.range.start.line;
-                delta_start = elem.range.start.character;
-            }
-
             semantic_token_data.push(SemanticToken {
-                delta_line,
-                delta_start,
-                length: elem.range.end.character - elem.range.start.character,
+                delta_line: elem.range.start.line - rel_position.line,
+                delta_start: elem.range.start.character - rel_position.character,
+                length: elem.range.end.character - elem.range.start.character + 1,
                 token_type: elem.element_type as u32,
                 token_modifiers_bitset: 0,
             });
+
+            rel_position = elem.range.start;
         }
 
         match semantic_token_data.len() {
