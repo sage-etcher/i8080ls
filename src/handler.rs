@@ -463,9 +463,17 @@ impl LanguageServer for Backend {
         };
 
         for elem in &ctx.parser.semantic_list {
+            let delta_line = elem.range.start.line - rel_position.line;
+            let delta_start: u32;
+            if delta_line == 0 {
+                delta_start = elem.range.start.character - rel_position.character;
+            } else {
+                delta_start = elem.range.start.character;
+            }
+
             semantic_token_data.push(SemanticToken {
-                delta_line: elem.range.start.line - rel_position.line,
-                delta_start: elem.range.start.character - rel_position.character,
+                delta_line,
+                delta_start,
                 length: elem.range.end.character - elem.range.start.character + 1,
                 token_type: elem.element_type as u32,
                 token_modifiers_bitset: 0,
