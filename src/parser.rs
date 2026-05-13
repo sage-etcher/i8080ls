@@ -254,9 +254,86 @@ impl Parser {
             return;
         }
 
+        match symbol_type {
+            SymbolType::MACRO | SymbolType::STRING | SymbolType::COMMENT => {
+
+                self.semantic_list.push(HiElement {
+                    range: self.lexer.position.clone(),
+                    element_type: symbol_type.clone(),
+                });
+                return;
+            }
+            _ => {}
+        }
+        
+        if self.lexer.position.start.line != self.lexer.position.end.line {
+            return;
+        }
+
+        let line_opt = self.lexer.file_content
+                           .lines()
+                           .nth(self.lexer.position.start.line as usize);
+
+        if line_opt.is_none() {
+            return;
+        }
+
+        let line = line_opt.unwrap();
+
+        let start = self.lexer.position.start.character as usize;
+        let end   = self.lexer.position.end.character   as usize;
+        let slice = &line[start..end];
+
+        let mut range = Range {
+            start: self.lexer.position.start,
+            end:   self.lexer.position.start,
+        };
+
+
+        for c in slice.chars() {
+            match c {
+                '_' | '$' => {
+                    self.semantic_list.push(HiElement {
+                        range: range.clone(),
+                        element_type: symbol_type.clone(),
+                    });
+                    range.start = range.end;
+                    range.end.character += 1;
+                    self.semantic_list.push(HiElement {
+                        range: range.clone(),
+                        element_type: SymbolType::SPACERS,
+                    });
+                    range.start = range.end;
+                }
+                _ => {
+                    range.end.character += 1;
+                    continue;
+                }
+            }
+        }
+
+        if symbol_type == SymbolType::NUMBER {
+            match slice.chars().last().unwrap() {
+                'h' | 'H' | 'd' | 'D' | 'o' | 'O' | 'q' | 'Q' | 'b' | 'B' => {
+                    range.end.character -= 1;
+                    self.semantic_list.push(HiElement {
+                        range: range.clone(),
+                        element_type: symbol_type.clone(),
+                    });
+                    range.start = range.end;
+                    range.end.character += 1;
+                    self.semantic_list.push(HiElement {
+                        range: range.clone(),
+                        element_type: SymbolType::NUMTYPE,
+                    });
+                    return;
+                }
+                _ => { }
+            }
+        }
         self.semantic_list.push(HiElement {
-            range: self.lexer.position.clone(),
-            element_type: symbol_type,
+            range: range.clone(),
+            element_type: symbol_type.clone(),
         });
     }
 
@@ -774,6 +851,7 @@ impl Parser {
         self.lexer.read_ch();
         self.parse_get_macro_definitions();
         self.lock_semantic_list = true;
+        dbg!(&self.semantic_list);
 
         // collect labels
         self.lexer.reset();
