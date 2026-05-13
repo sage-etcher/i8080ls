@@ -19,6 +19,7 @@ pub enum SymbolType {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Symbol {
     Unknown         = 0x0100 * SymbolType::NORMAL as isize,
+    Newline,
     EOF,
     MacroORG        = 0x0100 * SymbolType::MACRO as isize,
     MacroEND,
@@ -53,7 +54,6 @@ pub enum Symbol {
     StringASCII     = 0x0100 * SymbolType::STRING  as isize,
     Comma           = 0x0100 * SymbolType::SYMBOL  as isize,
     Colon,
-    Newline,
     Ident           = 0x0100 * SymbolType::LABEL   as isize,
     Comment         = 0x0100 * SymbolType::COMMENT as isize,
     OpcodeACI       = 0x0100 * SymbolType::OPCODE  as isize,
