@@ -230,6 +230,7 @@ impl Parser {
     }
 
     fn highlight_symbol(&mut self) {
+        // {{{
         if self.lock_semantic_list {
             return;
         }
@@ -335,6 +336,7 @@ impl Parser {
             range: range.clone(),
             element_type: symbol_type.clone(),
         });
+        // }}}
     }
 
     fn next_symbol(&mut self) {
