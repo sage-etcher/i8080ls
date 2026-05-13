@@ -153,6 +153,8 @@ impl Backend {
         self.client
             .publish_diagnostics(uri.clone(), self.get_diagnostics(uri), None)
             .await;
+
+        let _ = self.client.semantic_tokens_refresh().await;
     }
     // }}}
 }
