@@ -23,9 +23,9 @@ Runs over TCP on `127.0.0.1:9292`.
 
 ## TODO
 
-[ ] support for `SET` macro
-[ ] support for `IF`/`ENDIF` conditionals
-[ ] support for preprocessor arithmatic and logic
-[ ] command line options for stdin/stdout vs tcp operations
-[ ] command line help and version
+[ ] support for `SET` macro  
+[ ] support for `IF`/`ENDIF` conditionals  
+[ ] support for preprocessor arithmatic and logic  
+[ ] command line options for stdin/stdout vs tcp operations  
+[ ] command line help and version  
 
