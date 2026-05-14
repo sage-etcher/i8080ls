@@ -333,11 +333,17 @@ impl Lexer {
             Some('$')  => return self.parse_symbol(vec![Symbol::MacroPC]),
             Some('+')  => return self.parse_symbol(vec![Symbol::MacroAdd]),
             Some('-')  => return self.parse_symbol(vec![Symbol::MacroSub]),
-            Some('*')  => return self.parse_symbol(vec![Symbol::MacroMult]),
             Some('/')  => return self.parse_symbol(vec![Symbol::MacroDiv]),
             Some('%')  => return self.parse_symbol(vec![Symbol::MacroMod]),
             Some(';')  => return self.parse_comment(),
             Some('\'') => return self.parse_string(),
+            Some('*')  => {
+                if self.character == 1 {
+                    return self.parse_comment();
+                } else {
+                    return self.parse_symbol(vec![Symbol::MacroMult]);
+                }
+            }
             _ => {
                 // number
                 if self.ch.unwrap().is_digit(10) {
