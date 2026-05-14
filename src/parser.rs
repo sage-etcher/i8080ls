@@ -129,8 +129,7 @@ impl Parser {
         let ref_pos = self.lexer.position;
         if !self.macro_list.contains_key(&key) {
             // make new element
-            self.macro_list.insert(key.clone(), MacroElement::new(
-                    key.clone(), None, None));
+            self.macro_list.insert(key.clone(), MacroElement::new(key.clone(), None, None));
         }
 
         self.macro_list.get_mut(&key).unwrap().references.insert(ref_pos);
@@ -141,8 +140,7 @@ impl Parser {
         // {{{
         // add new macro to list
         if !self.macro_list.contains_key(&key) {
-            self.macro_list.insert(key.clone(), MacroElement::new(
-                    key, Some(value), Some(pos)));
+            self.macro_list.insert(key.clone(), MacroElement::new(key, Some(value), Some(pos)));
             return;
         }
 
@@ -152,8 +150,6 @@ impl Parser {
             return;
         }
 
-
-
         // add macro declaration + definition
         let description = self.description.join("\n");
 
@@ -161,7 +157,6 @@ impl Parser {
         self.macro_list.get_mut(&key).unwrap().declaration = Some(pos);
         self.macro_list.get_mut(&key).unwrap().description = Some(description);
         self.macro_list.get_mut(&key).unwrap().references.remove(&pos);
-
         // }}}
     }
 
@@ -271,9 +266,7 @@ impl Parser {
             return;
         }
 
-        let line_opt = self.lexer.file_content
-                           .lines()
-                           .nth(self.lexer.position.start.line as usize);
+        let line_opt = self.lexer.file_content.lines().nth(self.lexer.position.start.line as usize);
 
         if line_opt.is_none() {
             return;
@@ -426,13 +419,14 @@ impl Parser {
 
         match opcode {
             Symbol::OpcodeLXI => {
-                if !(self.expect(&reg16_alu, 
-                                 InternalErrorCode::SyntaxRegisterPair)
-                     && self.expect(&vec![Symbol::Comma], 
-                                    InternalErrorCode::SyntaxMissingComma)
-                     && self.expect(&vec![Symbol::NumberWord], 
-                                    InternalErrorCode::SyntaxIntermediateWord))
-                {
+                if !(
+                    self.expect(&reg16_alu, InternalErrorCode::SyntaxRegisterPair) &&
+                    self.expect(&vec![Symbol::Comma], InternalErrorCode::SyntaxMissingComma) &&
+                    self.expect(
+                        &vec![Symbol::NumberWord], 
+                        InternalErrorCode::SyntaxIntermediateWord
+                    )
+                ) {
                     return;
                 }
             }
@@ -442,8 +436,10 @@ impl Parser {
                 }
             }
             Symbol::OpcodeSTAX | Symbol::OpcodeLDAX => {
-                if !self.expect(&vec![Symbol::RegPairBC, Symbol::RegPairDE], 
-                                InternalErrorCode::SyntaxRegisterPairBD) {
+                if !self.expect(
+                    &vec![Symbol::RegPairBC, Symbol::RegPairDE], 
+                    InternalErrorCode::SyntaxRegisterPairBD
+                ) {
                     return;
                 }
             }
@@ -453,8 +449,7 @@ impl Parser {
                     Symbol::RegPairDE,  Symbol::RegPairHL,
                 ];
 
-                if !self.expect(&reg16_push, 
-                                InternalErrorCode::SyntaxRegisterPairPush) {
+                if !self.expect(&reg16_push, InternalErrorCode::SyntaxRegisterPairPush) {
                     return;
                 }
             }
@@ -463,14 +458,16 @@ impl Parser {
             Symbol::OpcodeSUI  | Symbol::OpcodeSBI  |
             Symbol::OpcodeANI  | Symbol::OpcodeXRI  |
             Symbol::OpcodeORI  | Symbol::OpcodeCPI => {
-                if !self.expect(&vec![Symbol::NumberByte], 
-                                InternalErrorCode::SyntaxIntermediateByte) {
+                if !self.expect(
+                    &vec![Symbol::NumberByte], 
+                    InternalErrorCode::SyntaxIntermediateByte
+                ) {
                     return;
                 }
             }
             Symbol::OpcodeRST => {
-                if self.accept(&vec![Symbol::NumberByte]).is_none()
-                   || self.lexer.number > 7
+                if self.accept(&vec![Symbol::NumberByte]).is_none() ||
+                    self.lexer.number > 7
                 {
                     self.next_symbol();
                     self.add_error(InternalErrorCode::SyntaxIntermediateRST);
@@ -479,21 +476,23 @@ impl Parser {
                 self.next_symbol();
             }
             Symbol::OpcodeMVI => {
-                if !(self.expect(&reg8, InternalErrorCode::SyntaxRegister)
-                     && self.expect(&vec![Symbol::Comma],
-                                    InternalErrorCode::SyntaxMissingComma)
-                     && self.expect(&vec![Symbol::NumberByte],
-                                    InternalErrorCode::SyntaxIntermediateByte))
-                {
+                if !(
+                    self.expect(&reg8, InternalErrorCode::SyntaxRegister) &&
+                    self.expect(&vec![Symbol::Comma], InternalErrorCode::SyntaxMissingComma) &&
+                    self.expect(
+                        &vec![Symbol::NumberByte], 
+                        InternalErrorCode::SyntaxIntermediateByte
+                    )
+                ) {
                     return;
                 }
             }
             Symbol::OpcodeMOV => {
-                if !(self.expect(&reg8, InternalErrorCode::SyntaxRegister)
-                     && self.expect(&vec![Symbol::Comma],
-                                    InternalErrorCode::SyntaxMissingComma)
-                     && self.expect(&reg8, InternalErrorCode::SyntaxRegister))
-                {
+                if !(
+                    self.expect(&reg8, InternalErrorCode::SyntaxRegister) &&
+                    self.expect(&vec![Symbol::Comma], InternalErrorCode::SyntaxMissingComma) &&
+                    self.expect(&reg8, InternalErrorCode::SyntaxRegister) 
+                ) {
                     return;
                 }
             }
@@ -514,8 +513,10 @@ impl Parser {
             Symbol::OpcodeCALL | Symbol::OpcodeCNZ  | Symbol::OpcodeCNC  |
             Symbol::OpcodeCPO  | Symbol::OpcodeCP   | Symbol::OpcodeCZ   |
             Symbol::OpcodeCC   | Symbol::OpcodeCPE  | Symbol::OpcodeCM => {
-                if !self.expect(&vec![Symbol::NumberWord], 
-                                InternalErrorCode::SyntaxIntermediateWord) {
+                if !self.expect(
+                    &vec![Symbol::NumberWord], 
+                    InternalErrorCode::SyntaxIntermediateWord
+                ) {
                     return;
                 }
             }
@@ -819,9 +820,12 @@ impl Parser {
 
     fn stmt_skip_macros(&mut self) {
         // only act on macros
-        if self.accept(&vec!(Symbol::MacroDB,  Symbol::MacroDW,  
-                             Symbol::MacroDS,  Symbol::MacroORG, 
-                             Symbol::MacroEND)).is_none() {
+        if self.accept(
+            &vec!(
+                Symbol::MacroDB,  Symbol::MacroDW,  Symbol::MacroDS,  Symbol::MacroORG, 
+                Symbol::MacroEND,
+            )
+        ).is_none() {
             return;
         }
 
@@ -853,7 +857,6 @@ impl Parser {
         self.lexer.read_ch();
         self.parse_get_macro_definitions();
         self.lock_semantic_list = true;
-        dbg!(&self.semantic_list);
 
         // collect labels
         self.lexer.reset();

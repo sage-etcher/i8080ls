@@ -254,7 +254,11 @@ impl Lexer {
 
     fn parse_skip_whitespace(&mut self) {
         while !self.ch.is_none() && 
-                (self.ch.unwrap() == ' ' || self.ch.unwrap() == '\t') {
+            (
+                self.ch.unwrap() == ' ' || 
+                self.ch.unwrap() == '\t'
+            ) 
+        {
             self.read_ch();
         }
     }
@@ -270,11 +274,11 @@ impl Lexer {
         let mut ident_arr: Vec<char> = Vec::new();
 
         self.set_pos_start();
-        while !self.read_ch().is_none() 
-            && self.ch.unwrap().is_ascii() 
-            && !self.ch.unwrap().is_ascii_control()
-            && self.ch.unwrap() != '!' 
-            && self.ch.unwrap() != '\'' 
+        while !self.read_ch().is_none()  &&
+            self.ch.unwrap().is_ascii()  &&
+            !self.ch.unwrap().is_ascii_control() &&
+            self.ch.unwrap() != '!'  &&
+            self.ch.unwrap() != '\'' 
         {
             ident_arr.push(self.ch.unwrap());
         }
@@ -292,16 +296,13 @@ impl Lexer {
         match ident_bytes.len() {
             1 => {
                 self.number = ident_bytes[0] as u32;
-                return vec![Symbol::StringASCII,
-                            Symbol::NumberByte,
-                            Symbol::NumberWord];
+                return vec![Symbol::StringASCII, Symbol::NumberByte, Symbol::NumberWord];
             },
             2 => {
                 self.number = ident_bytes[0] as u32;
                 self.number *= 0x10;
                 self.number += ident_bytes[1] as u32;
-                return vec![Symbol::StringASCII,
-                            Symbol::NumberWord];
+                return vec![Symbol::StringASCII, Symbol::NumberWord];
             },
             _ => {
                 return vec![Symbol::StringASCII];

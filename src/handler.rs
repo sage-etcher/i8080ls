@@ -89,10 +89,7 @@ impl Backend {
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
 
         let mut text = ctx.parser.lexer.file_content.lines();
-        let line_text: Vec<char> = text.nth(position.line as usize)
-                                       .unwrap()
-                                       .chars()
-                                       .collect();
+        let line_text: Vec<char> = text.nth(position.line as usize).unwrap().chars().collect();
 
         let mut i = position.character as usize;
 
@@ -150,9 +147,7 @@ impl Backend {
         self.context.insert(uri.clone(), ctx);
 
         // publish diagnostics
-        self.client
-            .publish_diagnostics(uri.clone(), self.get_diagnostics(uri), None)
-            .await;
+        self.client.publish_diagnostics(uri.clone(), self.get_diagnostics(uri), None).await;
 
         let _ = self.client.semantic_tokens_refresh().await;
     }
@@ -160,10 +155,8 @@ impl Backend {
 }
 
 impl LanguageServer for Backend {
-    async fn initialize(&self, _params: InitializeParams) -> 
-            Result<InitializeResult> {
+    async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
         dbg!("initialize");
-        dbg!(&_params);
 
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
@@ -222,9 +215,7 @@ impl LanguageServer for Backend {
     async fn initialized(&self, _params: InitializedParams) {
         // {{{
         dbg!("initialized");
-        self.client
-            .log_message(MessageType::INFO, "server initialized!")
-            .await;
+        self.client.log_message(MessageType::INFO, "server initialized!").await;
         // }}}
     }
 
@@ -269,8 +260,10 @@ impl LanguageServer for Backend {
     }
 
     // actions
-    async fn goto_definition(&self, params: GotoDefinitionParams) -> 
-                Result<Option<GotoDefinitionResponse>> {
+    async fn goto_definition(
+        &self, 
+        params: GotoDefinitionParams
+    ) -> Result<Option<GotoDefinitionResponse>> {
         // {{{
         dbg!("goto_definition");
         let uri: Uri = params.text_document_position_params.text_document.uri;
@@ -296,8 +289,7 @@ impl LanguageServer for Backend {
         // }}}
     }
 
-    async fn references(&self, params: ReferenceParams) -> 
-                Result<Option<Vec<Location>>> {
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         // {{{
         dbg!("references");
         let uri: Uri = params.text_document_position.text_document.uri;
@@ -354,14 +346,19 @@ impl LanguageServer for Backend {
             return Ok(None)
         }
 
-        let mut hover_value = format!("# {}: {}", 
-                                      macro_unwrap.key.clone(),
-                                      macro_unwrap.value.clone().unwrap());
+        let mut hover_value = format!(
+            "# {}: {}", 
+            macro_unwrap.key.clone(),
+            macro_unwrap.value.clone().unwrap()
+        );
 
         if macro_unwrap.description.is_some() {
             if macro_unwrap.description.clone().unwrap().len() > 0 {
-                hover_value = format!("{}\n{}", hover_value, 
-                                      macro_unwrap.description.clone().unwrap());
+                hover_value = format!(
+                    "{}\n{}", 
+                    hover_value, 
+                    macro_unwrap.description.clone().unwrap()
+                );
             }
         }
 
@@ -375,8 +372,10 @@ impl LanguageServer for Backend {
         // }}}
     }
 
-    async fn prepare_rename(&self, params: TextDocumentPositionParams) -> 
-                Result<Option<PrepareRenameResponse>> {
+    async fn prepare_rename(
+        &self, 
+        params: TextDocumentPositionParams
+    ) -> Result<Option<PrepareRenameResponse>> {
         // {{{
         dbg!("prepare_rename");
 
@@ -443,8 +442,10 @@ impl LanguageServer for Backend {
     }
 
     // colors
-    async fn semantic_tokens_full(&self, params: SemanticTokensParams) ->
-                Result<Option<SemanticTokensResult>> {
+    async fn semantic_tokens_full(
+        &self, 
+        params: SemanticTokensParams
+    ) -> Result<Option<SemanticTokensResult>> {
         dbg!("semantic_tokesn_full");
         // OH THIS IS HARD TO TEST
         // I'm semi-stuck on neovim v0.8... see below lol
@@ -501,20 +502,6 @@ impl LanguageServer for Backend {
             }
         }
     }
-    
-    //async fn document_symbol(&self, params: DocumentSymbolParams) ->
-    //            Result<Option<DocumentSymbolResponse>> {
-    //    // {{{
-    //    dbg!("document_symbol");
-
-    //    let uri: Uri = params.text_document.uri;
-    //    let ctx: &FileContext = &self.context.get(&uri).unwrap();
-
-    //    dbg!(&ctx.parser.semantic_list);
-
-    //    Ok(None)
-    //    // }}}
-    //}
 }
 
 // vim: fdm=marker
