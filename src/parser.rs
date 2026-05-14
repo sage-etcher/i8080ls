@@ -469,8 +469,8 @@ impl Parser {
                 if self.accept(&vec![Symbol::NumberByte]).is_none() ||
                     self.lexer.number > 7
                 {
-                    self.next_symbol();
                     self.add_error(InternalErrorCode::SyntaxIntermediateRST);
+                    self.next_symbol();
                     return;
                 }
                 self.next_symbol();
@@ -488,11 +488,24 @@ impl Parser {
                 }
             }
             Symbol::OpcodeMOV => {
+                let arg_a = self.symbol.clone();
                 if !(
                     self.expect(&reg8, InternalErrorCode::SyntaxRegister) &&
-                    self.expect(&vec![Symbol::Comma], InternalErrorCode::SyntaxMissingComma) &&
-                    self.expect(&reg8, InternalErrorCode::SyntaxRegister) 
+                    self.expect(&vec![Symbol::Comma], InternalErrorCode::SyntaxMissingComma)
                 ) {
+                    return;
+                }
+
+                let arg_b = self.symbol.clone();
+                if Parser::accept_raw(&arg_a, &vec![Symbol::RegM]).is_some() &&
+                    Parser::accept_raw(&arg_b, &vec![Symbol::RegM]).is_some()
+                {
+                    self.add_error(InternalErrorCode::SyntaxRegisterNoM);
+                    self.next_symbol();
+                    return;
+                }
+
+                if !self.expect(&reg8, InternalErrorCode::SyntaxRegister) {
                     return;
                 }
             }
