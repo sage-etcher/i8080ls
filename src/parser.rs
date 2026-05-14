@@ -87,7 +87,7 @@ impl Parser {
         self.error_list.push(InternalError::new(pos, errcode));
     }
 
-    fn accept_raw(haystack: &Vec<Symbol>, needles: &Vec<Symbol>) -> Option<Vec<Symbol>> {
+    pub fn accept_raw(haystack: &Vec<Symbol>, needles: &Vec<Symbol>) -> Option<Vec<Symbol>> {
         // {{{
         let mut matches = Vec::new();
 

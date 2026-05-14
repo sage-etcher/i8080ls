@@ -6,6 +6,9 @@ use tower_lsp_server::{Client, LanguageServer};
 
 use crate::data_types::FxDashMap;
 use crate::parser::FileContext;
+use crate::symbol::Symbol;
+use crate::lexer::Lexer;
+use crate::parser::Parser;
 
 #[derive(Debug)]
 pub struct Backend {
@@ -25,6 +28,7 @@ impl Backend {
 impl Backend {
     // {{{
     fn get_diagnostics(&self, uri: Uri) -> Vec<Diagnostic> {
+        // {{{
         dbg!("diagnostic");
 
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
@@ -83,9 +87,11 @@ impl Backend {
         }
 
         return full_diagnostics;
+        // }}}
     }
     
     fn get_ident(&self, uri: Uri, position: Position) -> (String, Range) {
+        // {{{
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
 
         let mut text = ctx.parser.lexer.file_content.lines();
@@ -138,9 +144,11 @@ impl Backend {
         let ident_lower: String = ident.to_lowercase().to_string();
 
         return (ident_lower, range);
+        // }}}
     }
 
     async fn parse_file(&self, uri: Uri, text: &str) {
+        // {{{
         // parse the file
         let mut ctx = FileContext::new(text);
         ctx.parse_file();
@@ -150,6 +158,21 @@ impl Backend {
         self.client.publish_diagnostics(uri.clone(), self.get_diagnostics(uri), None).await;
 
         let _ = self.client.semantic_tokens_refresh().await;
+        // }}}
+    }
+
+    fn add_spacers(n: usize, spacer: &str, input_string: String) -> String {
+        // {{{
+        return input_string
+            .as_bytes()
+            .rchunks(n)
+            .rev()
+            .map(std::str::from_utf8)
+            .collect::<std::result::Result<Vec<&str>, _>>()
+            .unwrap()
+            .join(spacer);
+
+        // }}}
     }
     // }}}
 }
@@ -334,41 +357,103 @@ impl LanguageServer for Backend {
         let ctx: &FileContext = &self.context.get(&uri).unwrap();
 
         let (ident, _) = self.get_ident(uri, position);
-        let macro_match = ctx.parser.macro_list.get(&ident);
 
-        if macro_match.is_none() {
-            return Ok(None)
-        }
+        // handling as a macro first
+        let mut sub_lexer = Lexer::new(&ident);
+        sub_lexer.read_ch();
+        let symbol = sub_lexer.get_symbol();
 
-        let macro_unwrap = macro_match.unwrap();
+        if Parser::accept_raw(&symbol, &vec![Symbol::Ident]).is_some() {
+            // handle macro lookup
+            // {{{
+            let macro_match = ctx.parser.macro_list.get(&ident);
 
-        if macro_unwrap.value.is_none() {
-            return Ok(None)
-        }
-
-        let mut hover_value = format!(
-            "# {}: {}", 
-            macro_unwrap.key.clone(),
-            macro_unwrap.value.clone().unwrap()
-        );
-
-        if macro_unwrap.description.is_some() {
-            if macro_unwrap.description.clone().unwrap().len() > 0 {
-                hover_value = format!(
-                    "{}\n{}", 
-                    hover_value, 
-                    macro_unwrap.description.clone().unwrap()
-                );
+            if macro_match.is_none() {
+                return Ok(None)
             }
-        }
 
-        Ok(Some(Hover {
-            range: None,
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: hover_value,
-            }),
-        }))
+            let macro_unwrap = macro_match.unwrap();
+
+            if macro_unwrap.value.is_none() {
+                return Ok(None)
+            }
+
+            let mut hover_value = format!(
+                "# {}: {}", 
+                macro_unwrap.key.clone(),
+                macro_unwrap.value.clone().unwrap()
+            );
+
+            if macro_unwrap.description.is_some() {
+                if macro_unwrap.description.clone().unwrap().len() > 0 {
+                    hover_value = format!(
+                        "{}\n{}", 
+                        hover_value, 
+                        macro_unwrap.description.clone().unwrap()
+                    );
+                }
+            }
+
+            return Ok(Some(Hover {
+                range: None,
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: hover_value,
+                }),
+            }))
+            // }}}
+        } else if Parser::accept_raw(
+            &symbol, 
+            &vec![Symbol::NumberByte, Symbol::NumberWord, Symbol::NumberOverflow],
+        ).is_some() {
+            // handle number
+            // {{{
+            let mut sign: &str = "";
+            let mut sign_number: Option<u32> = None;
+            for i in vec![0x8000, 0x80] {
+                if sub_lexer.number >= i && sub_lexer.number < (i<<1) {
+                    sign = "-";
+                    sign_number = Some(!(sub_lexer.number - 1) & (i-1));
+
+                    if sign_number.unwrap() == 0 {
+                        sign_number = Some(sub_lexer.number);
+                    }
+                    break;
+                }
+            }
+
+            if sign_number.is_none() {
+                sign_number = Some(sub_lexer.number);
+            }
+
+            let num_hex      = Backend::add_spacers(4, "$", format!("{:x}", sub_lexer.number));
+            let num_octal    = Backend::add_spacers(4, "$", format!("{:o}", sub_lexer.number));
+            let num_binary   = Backend::add_spacers(4, "$", format!("{:b}", sub_lexer.number));
+            let num_unsigned = Backend::add_spacers(3, ",", format!("{}", sub_lexer.number));
+            let num_signed   = Backend::add_spacers(3, ",", format!("{}", sign_number.unwrap()));
+
+            let hover_value = format!(
+                "# {}\nhex: 0{}h\noctal: 0{}q\nbinary: {}b\nunsigned: {}\nsigned: {}{}\n",
+                ident,
+                num_hex,
+                num_octal,
+                num_binary,
+                num_unsigned,
+                sign,
+                num_signed,
+            );
+
+
+            return Ok(Some(Hover {
+                range: None,
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: hover_value,
+                }),
+            }))
+            // }}}
+        }
+        Ok(None)
         // }}}
     }
 
@@ -446,6 +531,7 @@ impl LanguageServer for Backend {
         &self, 
         params: SemanticTokensParams
     ) -> Result<Option<SemanticTokensResult>> {
+        // {{{
         dbg!("semantic_tokesn_full");
         // OH THIS IS HARD TO TEST
         // I'm semi-stuck on neovim v0.8... see below lol
@@ -501,6 +587,7 @@ impl LanguageServer for Backend {
                 })));
             }
         }
+        // }}}
     }
 }
 
