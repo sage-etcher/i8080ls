@@ -23,6 +23,8 @@ Runs over TCP on `127.0.0.1:9292`.
 
 ## TODO
 
+see dedicated file for details </TODO.md>.
+
 [ ] support for `SET` macro  
 [ ] support for `IF`/`ENDIF` conditionals  
 [ ] support for preprocessor arithmatic and logic  
